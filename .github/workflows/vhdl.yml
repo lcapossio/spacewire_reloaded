@@ -1,0 +1,96 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# Copyright (C) 2026 Leonardo Capossio - bard0 design
+# Author: Leonardo Capossio - bard0 design - hello@bard0.com
+
+name: VHDL
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  regression-and-synth:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install GHDL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ghdl
+
+      - name: Lint VHDL sources
+        run: python3 scripts/lint_hdl.py --vhdl
+
+      - name: Run VHDL spwlink regression
+        run: |
+          ghdl --clean
+          ghdl -a --std=08 -fsynopsys \
+            rtl/vhdl/spwpkg.vhd \
+            rtl/vhdl/spwlink.vhd \
+            rtl/vhdl/spwrecv.vhd \
+            rtl/vhdl/spwxmit.vhd \
+            rtl/vhdl/spwxmit_fast.vhd \
+            rtl/vhdl/spwrecvfront_generic.vhd \
+            rtl/vhdl/spwrecvfront_fast.vhd \
+            rtl/vhdl/syncdff.vhd \
+            rtl/vhdl/spwram.vhd \
+            bench/vhdl/spwlink_tb.vhd \
+            bench/vhdl/spwlink_tb_all.vhd
+          ghdl -e --std=08 -fsynopsys spwlink_tb_all
+          ghdl -r --std=08 -fsynopsys spwlink_tb_all --assert-level=error
+
+      - name: Run VHDL stream regression
+        run: |
+          ghdl --clean
+          ghdl -a --std=08 -fsynopsys \
+            rtl/vhdl/spwpkg.vhd \
+            rtl/vhdl/spwlink.vhd \
+            rtl/vhdl/spwrecv.vhd \
+            rtl/vhdl/spwxmit.vhd \
+            rtl/vhdl/spwxmit_fast.vhd \
+            rtl/vhdl/spwrecvfront_generic.vhd \
+            rtl/vhdl/spwrecvfront_fast.vhd \
+            rtl/vhdl/syncdff.vhd \
+            rtl/vhdl/spwram.vhd \
+            rtl/vhdl/spwstream.vhd \
+            rtl/vhdl/streamtest.vhd \
+            bench/vhdl/streamtest_tb.vhd
+          ghdl -e --std=08 -fsynopsys streamtest_tb
+          ghdl -r --std=08 -fsynopsys streamtest_tb --assert-level=error
+
+      - name: Synthesize generic VHDL stream core
+        run: |
+          ghdl --clean
+          ghdl -a --std=08 -fsynopsys \
+            rtl/vhdl/spwpkg.vhd \
+            rtl/vhdl/spwlink.vhd \
+            rtl/vhdl/spwrecv.vhd \
+            rtl/vhdl/spwxmit.vhd \
+            rtl/vhdl/spwxmit_fast.vhd \
+            rtl/vhdl/spwrecvfront_generic.vhd \
+            rtl/vhdl/spwrecvfront_fast.vhd \
+            rtl/vhdl/syncdff.vhd \
+            rtl/vhdl/spwram.vhd \
+            rtl/vhdl/spwstream.vhd \
+            syn/vhdl/spwstream_synth_wrappers.vhd
+          ghdl --synth --std=08 -fsynopsys spwstream_synth_generic > spwstream_synth_generic.v
+
+      - name: Synthesize fast VHDL stream core
+        run: |
+          ghdl --clean
+          ghdl -a --std=08 -fsynopsys \
+            rtl/vhdl/spwpkg.vhd \
+            rtl/vhdl/spwlink.vhd \
+            rtl/vhdl/spwrecv.vhd \
+            rtl/vhdl/spwxmit.vhd \
+            rtl/vhdl/spwxmit_fast.vhd \
+            rtl/vhdl/spwrecvfront_generic.vhd \
+            rtl/vhdl/spwrecvfront_fast.vhd \
+            rtl/vhdl/syncdff.vhd \
+            rtl/vhdl/spwram.vhd \
+            rtl/vhdl/spwstream.vhd \
+            syn/vhdl/spwstream_synth_wrappers.vhd
+          ghdl --synth --std=08 -fsynopsys spwstream_synth_fast > spwstream_synth_fast.v

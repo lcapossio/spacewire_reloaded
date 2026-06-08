@@ -1,0 +1,138 @@
+version: 1
+name: spwlink_translation_parity
+status: complete
+
+golden:
+  language: vhdl
+  simulator: ghdl
+  top: spwlink_tb_all
+  sources:
+    - rtl/vhdl/spwpkg.vhd
+    - rtl/vhdl/spwlink.vhd
+    - rtl/vhdl/spwrecv.vhd
+    - rtl/vhdl/spwxmit.vhd
+    - rtl/vhdl/spwxmit_fast.vhd
+    - rtl/vhdl/spwrecvfront_generic.vhd
+    - rtl/vhdl/spwrecvfront_fast.vhd
+    - rtl/vhdl/syncdff.vhd
+    - rtl/vhdl/spwram.vhd
+    - bench/vhdl/spwlink_tb.vhd
+    - bench/vhdl/spwlink_tb_all.vhd
+
+candidate:
+  language: verilog
+  simulator: iverilog
+  top: spwlink_tb_all
+  sources:
+    - bench/verilog/spwlink_tb.v
+    - bench/verilog/spwlink_tb_all.v
+    - rtl/verilog/syncdff.v
+    - rtl/verilog/spwram.v
+    - rtl/verilog/spwlink.v
+    - rtl/verilog/spwxmit.v
+    - rtl/verilog/spwxmit_fast.v
+    - rtl/verilog/spwrecv.v
+    - rtl/verilog/spwrecvfront_generic.v
+    - rtl/verilog/spwrecvfront_fast.v
+    - rtl/verilog/spwstream.v
+
+bench_classification:
+  spwlink_tb_all:
+    class: stimulus-isomorphic
+    note: >
+      The Verilog wrapper mirrors the VHDL 23-case implementation/configuration
+      sweep. The per-case Verilog bench translates the VHDL bit-pattern
+      stimulus generator, output monitor, and state/error assertions.
+
+configuration_matrix:
+  columns: [case, rximpl, rxchunk, tximpl, tx_clock_div, rx_clock_freq_mhz, tx_clock_freq_mhz]
+  cases:
+    - [1,  generic, 1, generic, 1, 20.0, 20.0]
+    - [2,  generic, 1, generic, 1, 20.0, 20.0]
+    - [3,  generic, 1, generic, 1, 20.0, 20.0]
+    - [4,  generic, 1, generic, 0, 20.0, 20.0]
+    - [5,  fast,    1, generic, 1, 20.0, 20.0]
+    - [6,  fast,    1, generic, 1, 20.0, 20.0]
+    - [7,  fast,    2, generic, 1, 20.0, 20.0]
+    - [8,  fast,    3, generic, 1, 30.0, 20.0]
+    - [9,  fast,    4, generic, 1, 40.0, 20.0]
+    - [10, fast,    4, generic, 1, 100.0, 20.0]
+    - [11, fast,    4, generic, 1, 100.0, 20.0]
+    - [12, fast,    4, generic, 1, 43.0, 20.0]
+    - [13, generic, 1, fast,    1, 20.0, 39.0]
+    - [14, generic, 1, fast,    0, 20.0, 39.0]
+    - [15, generic, 1, fast,    0, 20.0, 80.0]
+    - [16, generic, 1, fast,    2, 20.0, 20.0]
+    - [17, generic, 1, fast,    3, 20.0, 80.0]
+    - [18, generic, 1, fast,    4, 20.0, 80.0]
+    - [19, generic, 1, fast,    39, 20.0, 80.0]
+    - [20, generic, 1, fast,    96, 50.0, 200.0]
+    - [21, generic, 1, fast,    1, 20.0, 78.5]
+    - [22, fast,    4, fast,    0, 43.0, 78.5]
+    - [23, fast,    4, fast,    1, 43.0, 77.5]
+
+stimulus_contract:
+  implemented:
+    - reset_idle_assertions
+    - started_null_generation
+    - started_timeout
+    - connecting_fct_generation
+    - connecting_timeout
+    - autostart_to_run
+    - link_disable
+    - running_disconnect_error
+    - junk_signal_filtering
+    - unexpected_eop_reset
+    - timecode_and_data_receive
+    - double_escape_error
+    - eop_eep_receive
+    - credit_error
+    - parity_error
+    - inverted_strobe_start
+    - data_strobe_both_high
+
+waveform_relationships:
+  - name: reset_outputs_idle
+    clock: sysclk
+    after_reset_deassert_cycles: [0, 2]
+    signals:
+      txrdy: 0
+      tick_out: 0
+      rxchar: 0
+      started: 0
+      connecting: 0
+      running: 0
+      errdisc: 0
+      errpar: 0
+      erresc: 0
+      errcred: 0
+      spw_do: 0
+      spw_so: 0
+  - name: null_generation_bit_period
+    mode: transition_interval
+    signal_group: [spw_do, spw_so]
+    expected_period: outbit_period
+    tolerance_ns: 1
+  - name: disconnect_to_errdisc
+    clock: sysclk
+    trigger: {signal: input_pattern, value: 0, context: running}
+    response: {signal: errdisc, value: 1}
+    latency_time_ns: [0, 1500]
+
+functional_coverage:
+  coverpoints:
+    - name: rx_implementation
+      bins: [generic, fast]
+    - name: tx_implementation
+      bins: [generic, fast]
+    - name: rxchunk
+      bins: [1, 2, 3, 4]
+    - name: tx_clock_div
+      bins: [0, 1, 2, 3, 4, 39, 96]
+    - name: error_type
+      bins: [disconnect, parity, escape, credit]
+    - name: token_type
+      bins: [null, fct, timecode, data, eop, eep]
+  crosses:
+    - name: implementation_matrix
+      points: [rx_implementation, rxchunk, tx_implementation]

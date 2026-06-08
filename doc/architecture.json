@@ -1,0 +1,34 @@
+{
+  "title": "spwstream - SpaceWire Light top level",
+  "top": "spwstream",
+  "theme": "dark",
+  "domains": {
+    "sys": {"freq_mhz": 100, "color": "#42A5F5", "border": "#0D47A1"},
+    "rx":  {"freq_mhz": 200, "color": "#FFA726", "border": "#E65100"},
+    "tx":  {"freq_mhz": 200, "color": "#66BB6A", "border": "#1B5E20"}
+  },
+  "grid": {"cell_w": 240, "cell_h": 100, "gutter_x": 110, "gutter_y": 80, "margin": 40},
+  "blocks": [
+    {"id": "host",      "label": "Host FIFO IF",        "external": true,                     "row": 1, "col": 0, "sublabel": "tx/rx data + ctrl/status"},
+    {"id": "txmem",     "label": "txmem",               "domain": "sys",                      "row": 0, "col": 1, "sublabel": "spwram (TX FIFO)"},
+    {"id": "rxmem",     "label": "rxmem",               "domain": "sys",                      "row": 2, "col": 1, "sublabel": "spwram (RX FIFO)"},
+    {"id": "spwlink",   "label": "spwlink",             "domain": "sys",                      "row": 1, "col": 2, "sublabel": "link FSM / exchange"},
+    {"id": "spwxmit",   "label": "spwxmit_fast",        "domain": "sys", "domain_b": "tx",    "row": 0, "col": 3, "sublabel": "sys / tx CDC"},
+    {"id": "spwrecv",   "label": "spwrecv",             "domain": "sys",                      "row": 1, "col": 3, "sublabel": "char decoder"},
+    {"id": "recvfront", "label": "spwrecvfront_fast",   "domain": "rx",  "domain_b": "sys",   "row": 2, "col": 3, "sublabel": "rx / sys CDC"},
+    {"id": "spw_tx",    "label": "SpW DO/SO",           "external": true,                     "row": 0, "col": 4, "sublabel": "data-strobe out"},
+    {"id": "spw_rx",    "label": "SpW DI/SI",           "external": true,                     "row": 2, "col": 4, "sublabel": "data-strobe in"}
+  ],
+  "edges": [
+    {"from": "host",      "to": "txmem",     "kind": "generic", "width": "9b"},
+    {"from": "rxmem",     "to": "host",      "kind": "generic", "width": "9b"},
+    {"from": "host",      "to": "spwlink",   "kind": "generic", "width": "ctrl/sts"},
+    {"from": "txmem",     "to": "spwlink",   "kind": "generic", "width": "9b"},
+    {"from": "spwlink",   "to": "rxmem",     "kind": "generic", "width": "9b"},
+    {"from": "spwlink",   "to": "spwxmit",   "kind": "generic", "width": "tx ctrl"},
+    {"from": "spwrecv",   "to": "spwlink",   "kind": "generic", "width": "rx bus"},
+    {"from": "recvfront", "to": "spwrecv",   "kind": "generic", "width": "RXCHUNK"},
+    {"from": "spwxmit",   "to": "spw_tx",    "kind": "generic", "width": "2b"},
+    {"from": "spw_rx",    "to": "recvfront", "kind": "generic", "width": "2b"}
+  ]
+}

@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+version: 1
+name: spwrecvfront_generic_parity
+description: spacewire_light generic receive front-end VHDL golden vs Verilog candidate
+
+golden:
+  language: vhdl
+  std: "08"
+  top: spwrecvfront_generic
+  sources:
+    - ../../rtl/vhdl/spwrecvfront_generic.vhd
+
+candidate:
+  language: verilog
+  top: spwrecvfront_generic
+  sources:
+    - ../../rtl/verilog/spwrecvfront_generic.v
+
+interface:
+  top: spwrecvfront_generic
+
+formal:
+  enabled: true
+  engine: yosys
+  induct_depth: 12
+  modules:
+    - name: spwrecvfront_generic

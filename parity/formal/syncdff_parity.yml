@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+version: 1
+name: syncdff_parity
+description: spacewire_light syncdff VHDL golden vs Verilog candidate
+
+golden:
+  language: vhdl
+  std: "08"
+  top: syncdff
+  sources:
+    - ../../rtl/vhdl/syncdff.vhd
+
+candidate:
+  language: verilog
+  top: syncdff
+  sources:
+    - ../../rtl/verilog/syncdff.v
+
+interface:
+  top: syncdff
+
+formal:
+  enabled: true
+  engine: yosys
+  induct_depth: 8
+  modules:
+    - name: syncdff

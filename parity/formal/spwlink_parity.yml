@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+version: 1
+name: spwlink_parity
+description: spacewire_light spwlink VHDL record-port golden vs flattened Verilog candidate
+
+golden:
+  language: vhdl
+  std: "08"
+  top: spwlink
+  sources:
+    - ../../rtl/vhdl/spwpkg.vhd
+    - ../../rtl/vhdl/spwlink.vhd
+
+candidate:
+  language: verilog
+  top: spwlink
+  sources:
+    - ../../rtl/verilog/spwlink.v
+
+interface:
+  top: spwlink
+
+formal:
+  enabled: true
+  engine: yosys
+  induct_depth: 128
+  bounded_depth: 128
+  modules:
+    - name: spwlink
+      golden_top: spwlink_flat
+      candidate_top: spwlink
+      wrapper: spwlink_flat.vhd
+      configs:
+        - golden: {reset_time: 640}
+          candidate: {RESET_TIME: 640}
