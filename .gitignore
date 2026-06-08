@@ -1,0 +1,11 @@
+AGENTS.md
+no_commit/
+.wavecmp_tmp/
+__pycache__/
+*.vcd
+*.vvp
+work-obj*.cf
+build/
+.pytest_cache/
+__pycache__/
+results.xml
