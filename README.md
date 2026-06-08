@@ -94,6 +94,7 @@ The first LGPL AXI replacement slice is in progress:
 - `rtl/verilog/spw_axi_lite_regs.v`: Verilog AXI4-Lite register block.
 - `rtl/verilog/spw_axis_tx.v`: Verilog AXI-Stream TX bridge.
 - `rtl/verilog/spw_axis_rx.v`: Verilog AXI-Stream RX bridge.
+- `rtl/verilog/spw_axi_top.v`: Verilog top-level wrapper used by the local cocotb/Icarus integration regression.
 
 The AXI-Stream data path is currently an N-Char stream:
 
@@ -122,7 +123,7 @@ python build.py vivado --dry-run
 - `--runner wsl`: run cocotb from WSL with `python3`.
 - `--runner local`: run cocotb from the current Python environment.
 
-The current regression runs the shared cocotb tests against the Verilog AXI modules with Icarus Verilog. AXI-Lite tests use `AxiLiteMaster` for register reads, writes, byte strobes, and channel backpressure. AXI-Stream tests use `AxiStreamSource` and `AxiStreamSink` with pause generators for ready/valid backpressure.
+The current regression runs the shared cocotb tests against the Verilog AXI modules with Icarus Verilog. AXI-Lite tests use `AxiLiteMaster` for register reads, writes, byte strobes, randomized status/control access, reset recovery, and channel backpressure. AXI-Stream tests use `AxiStreamSource` and `AxiStreamSink` with pause generators for ready/valid backpressure. The top-level AXI regression loops the SpaceWire physical TX/RX pins back through the real `spwstream` core and sends an AXI-Stream packet plus a TimeCode through AXI-Lite.
 
 The VHDL AXI modules are linted with GHDL; VHDL cocotb execution should use a simulator/install combination with a working cocotb VHDL interface.
 

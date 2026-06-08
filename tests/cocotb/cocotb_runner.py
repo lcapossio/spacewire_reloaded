@@ -43,6 +43,7 @@ def run_icarus(
     verilog_sources: list[Path],
     test_dir: Path,
     build_dir: Path,
+    parameters: dict[str, str | int] | None = None,
 ) -> None:
     require_tool("iverilog")
     require_tool("vvp")
@@ -51,9 +52,12 @@ def run_icarus(
     build_dir.mkdir(parents=True, exist_ok=True)
     sim_file = build_dir / f"{top}.vvp"
     sources = [str(path) for path in verilog_sources]
+    parameter_args = []
+    for name, value in (parameters or {}).items():
+        parameter_args.append(f"-P{top}.{name}={value}")
 
     run(
-        ["iverilog", "-g2001", "-Wall", "-o", str(sim_file), "-s", top, *sources],
+        ["iverilog", "-g2001", "-Wall", "-o", str(sim_file), "-s", top, *parameter_args, *sources],
         cwd=ROOT,
     )
 

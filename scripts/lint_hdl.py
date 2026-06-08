@@ -40,6 +40,7 @@ VERILOG_SOURCES = [
     "rtl/verilog/spw_axis_tx.v",
     "rtl/verilog/spw_axis_rx.v",
     "rtl/verilog/spw_axi_lite_regs.v",
+    "rtl/verilog/spw_axi_top.v",
 ]
 
 VERILOG_RTL_SOURCES = [
@@ -56,6 +57,7 @@ VERILOG_RTL_SOURCES = [
     "rtl/verilog/spw_axis_tx.v",
     "rtl/verilog/spw_axis_rx.v",
     "rtl/verilog/spw_axi_lite_regs.v",
+    "rtl/verilog/spw_axi_top.v",
 ]
 
 
@@ -83,6 +85,7 @@ YOSYS_TOPS = [
     YosysTop("AXI stream TX bridge", "spw_axis_tx"),
     YosysTop("AXI stream RX bridge", "spw_axis_rx"),
     YosysTop("AXI-Lite register block", "spw_axi_lite_regs"),
+    YosysTop("AXI top wrapper", "spw_axi_top"),
 ]
 
 VHDL_COMMON = [

@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# Copyright (C) 2026 Leonardo Capossio - bard0 design
+# Author: Leonardo Capossio - bard0 design - hello@bard0.com
+
+name: Cocotb AXI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  axi-regression:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install HDL tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iverilog
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pytest cocotb cocotbext-axi
+
+      - name: Run cocotb AXI regressions
+        run: python3 build.py test --runner local -v

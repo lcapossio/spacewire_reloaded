@@ -17,6 +17,7 @@ REG_TIMECODE_TX = 0x14
 REG_TIMECODE_RX = 0x18
 REG_ERROR = 0x1C
 REG_IRQ_ENABLE = 0x20
+REG_IRQ_STATUS = 0x24
 
 
 def value(signal):
@@ -140,3 +141,97 @@ async def axi_lite_timecodes_errors_and_irq_are_sticky_until_cleared(dut):
     assert await axil_read_dword(axil, REG_ERROR) == 0x00000000
     await Timer(1, units="ns")
     assert value(dut.irq) == 0
+
+
+@cocotb.test()
+async def axi_lite_randomized_register_backpressure_and_strobes(dut):
+    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    axil = make_axil_master(dut)
+    await reset_dut(dut)
+
+    expected_control = 0
+    expected_txdiv = 0
+    seed = 0xACE1
+
+    for _ in range(32):
+        seed = ((seed * 1103515245) + 12345) & 0xFFFFFFFF
+        if seed & 1:
+            data = (seed >> 4) & 0x0F
+            await axil_write_dword(axil, REG_CONTROL, data)
+            expected_control = data
+            assert await axil_read_dword(axil, REG_CONTROL) == expected_control
+            assert value(dut.autostart) == ((expected_control >> 1) & 1)
+            assert value(dut.linkstart) == ((expected_control >> 2) & 1)
+            assert value(dut.linkdis) == ((expected_control >> 3) & 1)
+        else:
+            data = (seed >> 8) & 0xFF
+            await axil.write(REG_TXDIVCNT, bytes([data]))
+            expected_txdiv = data
+            assert await axil_read_dword(axil, REG_TXDIVCNT) == expected_txdiv
+            assert value(dut.txdivcnt) == expected_txdiv
+
+        dut.started.value = (seed >> 3) & 1
+        dut.connecting.value = (seed >> 4) & 1
+        dut.running.value = (seed >> 5) & 1
+        dut.txrdy.value = (seed >> 6) & 1
+        dut.txhalff.value = (seed >> 7) & 1
+        dut.rxvalid.value = (seed >> 8) & 1
+        dut.rxhalff.value = (seed >> 9) & 1
+        await RisingEdge(dut.clk)
+        status = await axil_read_dword(axil, REG_STATUS)
+        assert (status & 0x7F) == (
+            value(dut.started)
+            | (value(dut.connecting) << 1)
+            | (value(dut.running) << 2)
+            | (value(dut.txrdy) << 3)
+            | (value(dut.txhalff) << 4)
+            | (value(dut.rxvalid) << 5)
+            | (value(dut.rxhalff) << 6)
+        )
+
+    dut.errdisc.value = 1
+    dut.errpar.value = 1
+    dut.erresc.value = 1
+    dut.errcred.value = 1
+    await RisingEdge(dut.clk)
+    dut.errdisc.value = 0
+    dut.errpar.value = 0
+    dut.erresc.value = 0
+    dut.errcred.value = 0
+    assert await axil_read_dword(axil, REG_ERROR) == 0x0000000F
+    await axil.write(REG_ERROR, bytes([0x05]))
+    assert await axil_read_dword(axil, REG_ERROR) == 0x0000000A
+    await axil.write(REG_IRQ_STATUS, bytes([0x01]))
+    assert await axil_read_dword(axil, REG_ERROR) == 0x00000000
+
+
+@cocotb.test()
+async def axi_lite_recovers_from_reset_with_response_pending(dut):
+    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    axil = make_axil_master(dut)
+    await reset_dut(dut)
+
+    axil.write_if.b_channel.set_pause_generator(pause_cycles([True]))
+    pending_write = cocotb.start_soon(axil.write_dword(REG_CONTROL, 0x0000000E))
+
+    for _ in range(16):
+        await RisingEdge(dut.clk)
+        if value(dut.s_axi_bvalid) == 1:
+            break
+    assert value(dut.s_axi_bvalid) == 1
+
+    dut.rst.value = 1
+    await RisingEdge(dut.clk)
+    await RisingEdge(dut.clk)
+    dut.rst.value = 0
+    pending_write.kill()
+
+    axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
+    await RisingEdge(dut.clk)
+    await RisingEdge(dut.clk)
+
+    assert await axil_read_dword(axil, REG_CORE_ID) == 0x53505752
+    assert await axil_read_dword(axil, REG_CONTROL) == 0x00000000
+    assert value(dut.autostart) == 0
+    assert value(dut.linkstart) == 0
+    assert value(dut.linkdis) == 0
