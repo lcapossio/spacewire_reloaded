@@ -6,6 +6,7 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer, with_timeout
 from cocotbext.axi import AxiLiteBus, AxiLiteMaster
+from tests.cocotb.axi_protocol_assertions import start_axil_assertions
 
 
 REG_CORE_ID = 0x00
@@ -52,6 +53,10 @@ async def reset_dut(dut):
     await RisingEdge(dut.clk)
 
 
+def start_common_assertions(dut):
+    start_axil_assertions(cocotb, dut)
+
+
 def make_axil_master(dut):
     master = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
     master.write_if.aw_channel.set_pause_generator(pause_cycles([False, True, False, False]))
@@ -71,9 +76,78 @@ async def axil_read_dword(master, addr):
     return await master.read_dword(addr)
 
 
+async def manual_write_aw_then_w(dut, addr, data, wstrb=0xF, aw_delay=0, w_delay=4, bready_delay=3):
+    dut.s_axi_awaddr.value = addr
+    dut.s_axi_awvalid.value = 0
+    dut.s_axi_wdata.value = data
+    dut.s_axi_wstrb.value = wstrb
+    dut.s_axi_wvalid.value = 0
+    dut.s_axi_bready.value = 0
+
+    for _ in range(aw_delay):
+        await RisingEdge(dut.clk)
+    dut.s_axi_awvalid.value = 1
+    while not (value(dut.s_axi_awvalid) and value(dut.s_axi_awready)):
+        await RisingEdge(dut.clk)
+    await RisingEdge(dut.clk)
+    dut.s_axi_awvalid.value = 0
+
+    for _ in range(w_delay):
+        await RisingEdge(dut.clk)
+    dut.s_axi_wvalid.value = 1
+    while not (value(dut.s_axi_wvalid) and value(dut.s_axi_wready)):
+        await RisingEdge(dut.clk)
+    await RisingEdge(dut.clk)
+    dut.s_axi_wvalid.value = 0
+
+    for _ in range(bready_delay):
+        await RisingEdge(dut.clk)
+    dut.s_axi_bready.value = 1
+    while not value(dut.s_axi_bvalid):
+        await RisingEdge(dut.clk)
+    assert value(dut.s_axi_bresp) == 0
+    await RisingEdge(dut.clk)
+    dut.s_axi_bready.value = 0
+
+
+async def manual_write_w_then_aw(dut, addr, data, wstrb=0xF, w_delay=0, aw_delay=4, bready_delay=3):
+    dut.s_axi_awaddr.value = addr
+    dut.s_axi_awvalid.value = 0
+    dut.s_axi_wdata.value = data
+    dut.s_axi_wstrb.value = wstrb
+    dut.s_axi_wvalid.value = 0
+    dut.s_axi_bready.value = 0
+
+    for _ in range(w_delay):
+        await RisingEdge(dut.clk)
+    dut.s_axi_wvalid.value = 1
+    while not (value(dut.s_axi_wvalid) and value(dut.s_axi_wready)):
+        await RisingEdge(dut.clk)
+    await RisingEdge(dut.clk)
+    dut.s_axi_wvalid.value = 0
+
+    for _ in range(aw_delay):
+        await RisingEdge(dut.clk)
+    dut.s_axi_awvalid.value = 1
+    while not (value(dut.s_axi_awvalid) and value(dut.s_axi_awready)):
+        await RisingEdge(dut.clk)
+    await RisingEdge(dut.clk)
+    dut.s_axi_awvalid.value = 0
+
+    for _ in range(bready_delay):
+        await RisingEdge(dut.clk)
+    dut.s_axi_bready.value = 1
+    while not value(dut.s_axi_bvalid):
+        await RisingEdge(dut.clk)
+    assert value(dut.s_axi_bresp) == 0
+    await RisingEdge(dut.clk)
+    dut.s_axi_bready.value = 0
+
+
 @cocotb.test()
 async def axi_lite_registers_drive_spw_controls(dut):
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    start_common_assertions(dut)
     axil = make_axil_master(dut)
     await reset_dut(dut)
 
@@ -103,6 +177,7 @@ async def axi_lite_registers_drive_spw_controls(dut):
 @cocotb.test()
 async def axi_lite_timecodes_errors_and_irq_are_sticky_until_cleared(dut):
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    start_common_assertions(dut)
     axil = make_axil_master(dut)
     await reset_dut(dut)
 
@@ -146,6 +221,7 @@ async def axi_lite_timecodes_errors_and_irq_are_sticky_until_cleared(dut):
 @cocotb.test()
 async def axi_lite_randomized_register_backpressure_and_strobes(dut):
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    start_common_assertions(dut)
     axil = make_axil_master(dut)
     await reset_dut(dut)
 
@@ -208,6 +284,7 @@ async def axi_lite_randomized_register_backpressure_and_strobes(dut):
 @cocotb.test()
 async def axi_lite_recovers_from_reset_with_response_pending(dut):
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    start_common_assertions(dut)
     axil = make_axil_master(dut)
     await reset_dut(dut)
 
@@ -235,3 +312,23 @@ async def axi_lite_recovers_from_reset_with_response_pending(dut):
     assert value(dut.autostart) == 0
     assert value(dut.linkstart) == 0
     assert value(dut.linkdis) == 0
+
+
+@cocotb.test()
+async def axi_lite_accepts_independent_aw_w_ordering(dut):
+    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    start_common_assertions(dut)
+    axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
+    await reset_dut(dut)
+
+    await manual_write_aw_then_w(dut, REG_CONTROL, 0x00000006, w_delay=7, bready_delay=5)
+    assert await axil_read_dword(axil, REG_CONTROL) == 0x00000006
+
+    await manual_write_w_then_aw(dut, REG_CONTROL, 0x00000008, aw_delay=7, bready_delay=5)
+    assert await axil_read_dword(axil, REG_CONTROL) == 0x00000008
+
+    await manual_write_aw_then_w(dut, REG_TXDIVCNT, 0x000000A5, wstrb=0x1, w_delay=5)
+    assert await axil_read_dword(axil, REG_TXDIVCNT) == 0x000000A5
+
+    await manual_write_w_then_aw(dut, REG_TXDIVCNT, 0x0000003C, wstrb=0x1, aw_delay=5)
+    assert await axil_read_dword(axil, REG_TXDIVCNT) == 0x0000003C

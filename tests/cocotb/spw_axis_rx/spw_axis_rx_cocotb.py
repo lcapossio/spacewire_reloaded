@@ -6,6 +6,7 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer
 from cocotbext.axi import AxiStreamBus, AxiStreamSink
+from tests.cocotb.axi_protocol_assertions import start_axis_assertions
 
 
 def pause_cycles(pattern):
@@ -28,6 +29,7 @@ async def reset_dut(dut):
 @cocotb.test()
 async def axis_rx_maps_spw_rx_to_nchar_stream(dut):
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    start_axis_assertions(cocotb, dut, "m_axis")
     sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "m_axis"), dut.clk, dut.rst)
     sink.set_pause_generator(pause_cycles([True, False, False, True, False]))
     await reset_dut(dut)

@@ -123,7 +123,9 @@ python build.py vivado --dry-run
 - `--runner wsl`: run cocotb from WSL with `python3`.
 - `--runner local`: run cocotb from the current Python environment.
 
-The current regression runs the shared cocotb tests against the Verilog AXI modules with Icarus Verilog. AXI-Lite tests use `AxiLiteMaster` for register reads, writes, byte strobes, randomized status/control access, reset recovery, and channel backpressure. AXI-Stream tests use `AxiStreamSource` and `AxiStreamSink` with pause generators for ready/valid backpressure. The top-level AXI regression loops the SpaceWire physical TX/RX pins back through the real `spwstream` core and sends an AXI-Stream packet plus a TimeCode through AXI-Lite.
+The current regression runs the shared cocotb tests against the Verilog AXI modules with Icarus Verilog. AXI-Lite tests use `AxiLiteMaster` for register reads, writes, byte strobes, randomized status/control access, reset recovery, independent AW/W ordering, and channel backpressure. AXI-Stream tests use `AxiStreamSource` and `AxiStreamSink` with pause generators for ready/valid backpressure. The top-level AXI regression loops the SpaceWire physical TX/RX pins back through the real `spwstream` core and covers EOP, EEP, empty packets, multiple back-to-back packets, packet-boundary stalls, reset during streaming, link disconnect/reconnect, and TimeCode transfer through AXI-Lite.
+
+The cocotb suite also includes simulation-time AXI ready/valid stability assertions. These are protocol invariant checks during regression, not a replacement for a future formal proof flow.
 
 The VHDL AXI modules are linted with GHDL; VHDL cocotb execution should use a simulator/install combination with a working cocotb VHDL interface.
 
