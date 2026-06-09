@@ -101,6 +101,7 @@ module spw_axi_lite_regs #(
     wire [ADDR_WIDTH-1:0] write_addr;
     wire [31:0] write_data;
     wire [3:0] write_strb;
+    wire [3:0] error_inputs;
 
     assign s_axi_awready = !aw_holding_r && !bvalid_r;
     assign s_axi_wready = !w_holding_r && !bvalid_r;
@@ -135,6 +136,7 @@ module spw_axi_lite_regs #(
     assign rx_timecode_word = {rx_tick_valid_r, 23'd0, rx_tick_ctrl_r, rx_tick_time_r};
     assign irq_status = {27'd0, (started | connecting | running), txrdy, rxvalid, rx_tick_valid_r, |error_r};
     assign irq = |(irq_status & irq_enable_r);
+    assign error_inputs = {errcred, erresc, errpar, errdisc};
 
     assign write_fire = !bvalid_r &&
         (aw_holding_r || (s_axi_awvalid && s_axi_awready)) &&
@@ -181,7 +183,7 @@ module spw_axi_lite_regs #(
             irq_enable_r <= 32'd0;
         end else begin
             tick_pulse_r <= 1'b0;
-            error_r <= error_r | {errcred, erresc, errpar, errdisc};
+            error_r <= error_r | error_inputs;
 
             if (tick_out) begin
                 rx_tick_valid_r <= 1'b1;
@@ -225,12 +227,12 @@ module spw_axi_lite_regs #(
                     end
                     REG_TIMECODE_RX: begin
                         if (write_strb[3] && write_data[31]) begin
-                            rx_tick_valid_r <= 1'b0;
+                            rx_tick_valid_r <= tick_out;
                         end
                     end
                     REG_ERROR: begin
                         if (write_strb[0]) begin
-                            error_r <= (error_r | {errcred, erresc, errpar, errdisc}) & ~write_data[3:0];
+                            error_r <= (error_r & ~write_data[3:0]) | error_inputs;
                         end
                     end
                     REG_IRQ_ENABLE: begin
@@ -238,10 +240,10 @@ module spw_axi_lite_regs #(
                     end
                     REG_IRQ_STATUS: begin
                         if (write_strb[0] && write_data[0]) begin
-                            error_r <= 4'd0;
+                            error_r <= error_inputs;
                         end
                         if (write_strb[0] && write_data[1]) begin
-                            rx_tick_valid_r <= 1'b0;
+                            rx_tick_valid_r <= tick_out;
                         end
                     end
                     default: begin

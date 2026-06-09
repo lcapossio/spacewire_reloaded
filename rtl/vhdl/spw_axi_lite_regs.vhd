@@ -215,6 +215,7 @@ begin
         variable write_strb: std_logic_vector(3 downto 0);
         variable read_data:  std_logic_vector(31 downto 0);
         variable write_fire: std_logic;
+        variable error_inputs: std_logic_vector(3 downto 0);
     begin
         if rising_edge(clk) then
             if rst = '1' then
@@ -238,8 +239,9 @@ begin
                 irq_enable_r    <= (others => '0');
             else
                 tick_pulse_r <= '0';
+                error_inputs := errcred & erresc & errpar & errdisc;
 
-                error_r <= error_r or (errcred & erresc & errpar & errdisc);
+                error_r <= error_r or error_inputs;
 
                 if tick_out = '1' then
                     rx_tick_valid_r <= '1';
@@ -302,20 +304,20 @@ begin
                             end if;
                         when REG_TIMECODE_RX =>
                             if write_strb(3) = '1' and write_data(31) = '1' then
-                                rx_tick_valid_r <= '0';
+                                rx_tick_valid_r <= tick_out;
                             end if;
                         when REG_ERROR =>
                             if write_strb(0) = '1' then
-                                error_r <= (error_r or (errcred & erresc & errpar & errdisc)) and not write_data(3 downto 0);
+                                error_r <= (error_r and not write_data(3 downto 0)) or error_inputs;
                             end if;
                         when REG_IRQ_ENABLE =>
                             irq_enable_r <= apply_wstrb(irq_enable_r, write_data, write_strb);
                         when REG_IRQ_STATUS =>
                             if write_strb(0) = '1' and write_data(0) = '1' then
-                                error_r <= (others => '0');
+                                error_r <= error_inputs;
                             end if;
                             if write_strb(0) = '1' and write_data(1) = '1' then
-                                rx_tick_valid_r <= '0';
+                                rx_tick_valid_r <= tick_out;
                             end if;
                         when others =>
                             null;

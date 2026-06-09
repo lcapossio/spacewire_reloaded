@@ -107,6 +107,28 @@ async def wait_signal_high(dut, signal, name, max_cycles=64):
     raise AssertionError(f"timed out waiting for {name}")
 
 
+async def manual_read_dword(dut, addr, ar_delay=0, rready_delay=3):
+    dut.s_axi_araddr.value = addr
+    dut.s_axi_arvalid.value = 0
+    dut.s_axi_rready.value = 0
+
+    for _ in range(ar_delay):
+        await RisingEdge(dut.clk)
+    dut.s_axi_arvalid.value = 1
+    await wait_handshake(dut, dut.s_axi_arvalid, dut.s_axi_arready, "AR")
+    dut.s_axi_arvalid.value = 0
+
+    for _ in range(rready_delay):
+        await RisingEdge(dut.clk)
+    dut.s_axi_rready.value = 1
+    await wait_signal_high(dut, dut.s_axi_rvalid, "RVALID")
+    data = value(dut.s_axi_rdata)
+    assert value(dut.s_axi_rresp) == 0
+    await RisingEdge(dut.clk)
+    dut.s_axi_rready.value = 0
+    return data
+
+
 async def manual_write_aw_then_w(dut, addr, data, wstrb=0xF, aw_delay=0, w_delay=4, bready_delay=3):
     dut.s_axi_awaddr.value = addr
     dut.s_axi_awvalid.value = 0
@@ -360,3 +382,45 @@ async def axi_lite_accepts_independent_aw_w_ordering(dut):
 
     axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
     assert await axil_read_dword(axil, REG_TXDIVCNT) == 0x0000003C
+
+
+@cocotb.test()
+async def axi_lite_sticky_events_survive_simultaneous_clear(dut):
+    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    start_common_assertions(dut)
+    initialize_manual_axil_signals(dut)
+    await reset_dut(dut)
+
+    dut.errdisc.value = 1
+    await manual_write_aw_then_w(dut, REG_ERROR, 0x00000001, w_delay=3)
+    dut.errdisc.value = 0
+    assert await manual_read_dword(dut, REG_ERROR) == 0x00000001
+
+    dut.errdisc.value = 1
+    await manual_write_aw_then_w(dut, REG_IRQ_STATUS, 0x00000001, w_delay=3)
+    dut.errdisc.value = 0
+    assert await manual_read_dword(dut, REG_ERROR) == 0x00000001
+
+    dut.tick_out.value = 1
+    dut.ctrl_out.value = 1
+    dut.time_out.value = 0x11
+    await RisingEdge(dut.clk)
+    dut.tick_out.value = 0
+    assert await manual_read_dword(dut, REG_TIMECODE_RX) == 0x80000051
+
+    dut.tick_out.value = 1
+    dut.ctrl_out.value = 2
+    dut.time_out.value = 0x22
+    await manual_write_aw_then_w(dut, REG_TIMECODE_RX, 0x80000000, wstrb=0x8, w_delay=3)
+    dut.tick_out.value = 0
+    assert await manual_read_dword(dut, REG_TIMECODE_RX) == 0x800000A2
+
+    await manual_write_aw_then_w(dut, REG_TIMECODE_RX, 0x80000000, wstrb=0x8, w_delay=3)
+    assert await manual_read_dword(dut, REG_TIMECODE_RX) == 0x000000A2
+
+    dut.tick_out.value = 1
+    dut.ctrl_out.value = 3
+    dut.time_out.value = 0x2B
+    await manual_write_aw_then_w(dut, REG_IRQ_STATUS, 0x00000002, wstrb=0x1, w_delay=3)
+    dut.tick_out.value = 0
+    assert await manual_read_dword(dut, REG_TIMECODE_RX) == 0x800000EB
