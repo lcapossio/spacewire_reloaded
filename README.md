@@ -113,8 +113,15 @@ Clean-checkout flow:
 ```sh
 python build.py lint
 python build.py test
+python build.py test --hdl vhdl
 python build.py test --runner wsl
 python build.py vivado --dry-run
+```
+
+Install the Python regression dependencies with:
+
+```sh
+python -m pip install -r requirements-dev.txt
 ```
 
 `python build.py test` uses cocotb with `cocotbext-axi`. The test runner supports:
@@ -122,12 +129,15 @@ python build.py vivado --dry-run
 - `--runner auto`: default; prefers WSL on Windows when a WSL distribution is visible, otherwise uses the local environment.
 - `--runner wsl`: run cocotb from WSL with `python3`.
 - `--runner local`: run cocotb from the current Python environment.
+- `--hdl verilog`: default; run the Verilog cocotb regressions with Icarus Verilog.
+- `--hdl vhdl`: run the VHDL AXI leaf/register cocotb regressions with GHDL and cocotb VPI.
+- `--hdl all`: run both Verilog and VHDL cocotb regressions.
 
-The current regression runs the shared cocotb tests against the Verilog AXI modules with Icarus Verilog. AXI-Lite tests use `AxiLiteMaster` for register reads, writes, byte strobes, randomized status/control access, reset recovery, independent AW/W ordering, and channel backpressure. AXI-Stream tests use `AxiStreamSource` and `AxiStreamSink` with pause generators for ready/valid backpressure. The top-level AXI regression loops the SpaceWire physical TX/RX pins back through the real `spwstream` core and covers EOP, EEP, empty packets, multiple back-to-back packets, packet-boundary stalls, reset during streaming, link disconnect/reconnect, and TimeCode transfer through AXI-Lite.
+The current Verilog regression runs the shared cocotb tests against the Verilog AXI modules with Icarus Verilog. VHDL cocotb currently covers the AXI-Lite register block and AXI-Stream TX/RX leaf bridges with GHDL; the full VHDL top-level loopback still needs either a VHDL loopback wrapper or a mixed-language simulator flow. AXI-Lite tests use `AxiLiteMaster` for register reads, writes, byte strobes, randomized status/control access, reset recovery, independent AW/W ordering, and channel backpressure. AXI-Stream tests use `AxiStreamSource` and `AxiStreamSink` with pause generators for ready/valid backpressure. The top-level AXI regression loops the SpaceWire physical TX/RX pins back through the real `spwstream` core and covers EOP, EEP, empty packets, multiple back-to-back packets, packet-boundary stalls, reset during streaming, link disconnect/reconnect, and TimeCode transfer through AXI-Lite.
 
 The cocotb suite also includes simulation-time AXI protocol checkers. AXI-Lite channels are checked for ready/valid payload stability under backpressure. AXI-Stream channels are checked for resolved `TVALID`/`TREADY`, resolved active payloads, stable payload while stalled, bounded stall and packet length, DUT-output `TVALID` clearing during reset, and the SpaceWire N-Char terminal-beat contract: `TLAST` marks EOP/EEP, terminal `TDATA` must be `0` or `1`, and terminal `TUSER[0]` must match the EEP code. These are protocol invariant checks during regression, not a replacement for a future formal proof flow.
 
-The VHDL AXI modules are linted with GHDL; VHDL cocotb execution should use a simulator/install combination with a working cocotb VHDL interface.
+VHDL cocotb execution requires a simulator/install combination with a working GHDL cocotb VPI interface. The GitHub Actions cocotb workflow installs GHDL, Icarus Verilog, and `requirements-dev.txt`, then runs both `--hdl verilog` and `--hdl vhdl`.
 
 ## FPGA Resource Usage and Timing
 

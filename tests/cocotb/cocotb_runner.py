@@ -37,6 +37,25 @@ def cocotb_lib_dir() -> str:
     return result.stdout.strip()
 
 
+def parse_cocotb_results(results_file: Path) -> None:
+    if not results_file.exists():
+        raise RuntimeError(f"cocotb did not write results file: {results_file}")
+
+    results = ET.parse(results_file)
+    failures = []
+    for testcase in results.findall(".//testcase"):
+        failure = testcase.find("failure")
+        error = testcase.find("error")
+        if failure is not None or error is not None:
+            detail = failure if failure is not None else error
+            failures.append(
+                f"{testcase.get('classname')}.{testcase.get('name')}: "
+                f"{detail.get('error_msg') or detail.text or 'failed'}"
+            )
+    if failures:
+        raise RuntimeError("cocotb failures:\n" + "\n".join(failures))
+
+
 def run_icarus(
     *,
     top: str,
@@ -79,19 +98,51 @@ def run_icarus(
         env=env,
     )
 
-    if not results_file.exists():
-        raise RuntimeError(f"cocotb did not write results file: {results_file}")
+    parse_cocotb_results(results_file)
 
-    results = ET.parse(results_file)
-    failures = []
-    for testcase in results.findall(".//testcase"):
-        failure = testcase.find("failure")
-        error = testcase.find("error")
-        if failure is not None or error is not None:
-            detail = failure if failure is not None else error
-            failures.append(
-                f"{testcase.get('classname')}.{testcase.get('name')}: "
-                f"{detail.get('error_msg') or detail.text or 'failed'}"
-            )
-    if failures:
-        raise RuntimeError("cocotb failures:\n" + "\n".join(failures))
+
+def run_ghdl(
+    *,
+    top: str,
+    test_module: str,
+    vhdl_sources: list[Path],
+    test_dir: Path,
+    build_dir: Path,
+    generics: dict[str, str | int] | None = None,
+) -> None:
+    require_tool("ghdl")
+    require_tool("cocotb-config")
+
+    from cocotb_tools.runner import get_runner
+
+    build_dir.mkdir(parents=True, exist_ok=True)
+    results_file = build_dir / "results.xml"
+    if results_file.exists():
+        results_file.unlink()
+
+    runner = get_runner("ghdl")
+    runner.build(
+        hdl_library="top",
+        sources=vhdl_sources,
+        hdl_toplevel=top,
+        build_dir=build_dir,
+        build_args=["--std=08"],
+        always=True,
+    )
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(test_dir) + os.pathsep + env.get("PYTHONPATH", "")
+    runner.test(
+        test_module=test_module,
+        hdl_toplevel=top,
+        hdl_toplevel_library="top",
+        hdl_toplevel_lang="vhdl",
+        build_dir=build_dir,
+        test_dir=build_dir,
+        results_xml=str(results_file),
+        test_args=["--std=08"],
+        parameters=generics or {},
+        extra_env=env,
+    )
+
+    parse_cocotb_results(results_file)

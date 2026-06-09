@@ -127,6 +127,170 @@ class AxisStreamChecker:
         )
 
 
+class AxiLiteSlaveChecker:
+    def __init__(
+        self,
+        *,
+        clock,
+        reset,
+        prefix,
+        signals,
+        max_response_cycles=64,
+        max_stall_cycles=256,
+    ):
+        self.clock = clock
+        self.reset = reset
+        self.prefix = prefix
+        self.signals = signals
+        self.max_response_cycles = max_response_cycles
+        self.max_stall_cycles = max_stall_cycles
+
+    async def run(self):
+        previous_payload = {}
+        stall_cycles = {}
+        aw_pending = False
+        w_pending = False
+        write_outstanding = False
+        write_wait = 0
+        read_outstanding = False
+        read_wait = 0
+        reset_seen = False
+
+        while True:
+            await RisingEdge(self.clock)
+
+            reset_value = resolved_value(self.reset)
+            if reset_value is None or reset_value:
+                if reset_seen:
+                    self._assert_reset_outputs()
+                previous_payload.clear()
+                stall_cycles.clear()
+                aw_pending = False
+                w_pending = False
+                write_outstanding = False
+                write_wait = 0
+                read_outstanding = False
+                read_wait = 0
+                reset_seen = True
+                continue
+            reset_seen = False
+
+            channel_values = {}
+            for channel, payload in {
+                "aw": ["awaddr"],
+                "w": ["wdata", "wstrb"],
+                "ar": ["araddr"],
+                "b": ["bresp"],
+                "r": ["rdata", "rresp"],
+            }.items():
+                channel_values[channel] = self._check_channel(
+                    channel,
+                    payload,
+                    previous_payload,
+                    stall_cycles,
+                )
+
+            aw_fire = channel_values["aw"]["fire"]
+            w_fire = channel_values["w"]["fire"]
+            ar_fire = channel_values["ar"]["fire"]
+            b_fire = channel_values["b"]["fire"]
+            r_fire = channel_values["r"]["fire"]
+            bvalid = channel_values["b"]["valid"]
+            rvalid = channel_values["r"]["valid"]
+
+            if bvalid:
+                assert resolved_value(self.signals["bresp"]) == 0, (
+                    f"{self.prefix}_b BRESP must be OKAY"
+                )
+                assert write_outstanding, f"{self.prefix}_b response without write"
+
+            if rvalid:
+                assert resolved_value(self.signals["rresp"]) == 0, (
+                    f"{self.prefix}_r RRESP must be OKAY"
+                )
+                assert read_outstanding, f"{self.prefix}_r response without read"
+
+            if aw_fire:
+                assert not aw_pending, f"{self.prefix}_aw accepted duplicate address"
+                assert not write_outstanding, f"{self.prefix}_aw accepted while write response pending"
+                aw_pending = True
+
+            if w_fire:
+                assert not w_pending, f"{self.prefix}_w accepted duplicate data"
+                assert not write_outstanding, f"{self.prefix}_w accepted while write response pending"
+                w_pending = True
+
+            if aw_pending and w_pending and not write_outstanding:
+                write_outstanding = True
+                write_wait = 0
+                aw_pending = False
+                w_pending = False
+
+            if write_outstanding:
+                if bvalid:
+                    write_wait = 0
+                else:
+                    write_wait += 1
+                    assert write_wait <= self.max_response_cycles, (
+                        f"{self.prefix}_b response latency exceeded {self.max_response_cycles} cycles"
+                    )
+                if b_fire:
+                    write_outstanding = False
+
+            if ar_fire:
+                assert not read_outstanding, f"{self.prefix}_ar accepted while read response pending"
+                read_outstanding = True
+                read_wait = 0
+
+            if read_outstanding:
+                if rvalid:
+                    read_wait = 0
+                else:
+                    read_wait += 1
+                    assert read_wait <= self.max_response_cycles, (
+                        f"{self.prefix}_r response latency exceeded {self.max_response_cycles} cycles"
+                    )
+                if r_fire:
+                    read_outstanding = False
+
+    def _assert_reset_outputs(self):
+        for name in ("bvalid", "rvalid"):
+            value = resolved_value(self.signals[name])
+            assert value in (0, None), f"{self.prefix}_{name} asserted during reset"
+
+    def _check_channel(self, channel, payload_names, previous_payload, stall_cycles):
+        valid = self.signals[f"{channel}valid"]
+        ready = self.signals[f"{channel}ready"]
+        valid_value = resolved_value(valid)
+        ready_value = resolved_value(ready)
+        assert valid_value is not None, f"{self.prefix}_{channel}valid unresolved outside reset"
+        assert ready_value is not None, f"{self.prefix}_{channel}ready unresolved outside reset"
+
+        if valid_value == 0:
+            previous_payload.pop(channel, None)
+            stall_cycles[channel] = 0
+            return {"valid": False, "ready": bool(ready_value), "fire": False}
+
+        payload = resolved_payload([self.signals[name] for name in payload_names])
+        assert payload is not None, f"{self.prefix}_{channel} payload unresolved while valid"
+
+        if ready_value == 0:
+            stall_cycles[channel] = stall_cycles.get(channel, 0) + 1
+            assert stall_cycles[channel] <= self.max_stall_cycles, (
+                f"{self.prefix}_{channel} stalled for more than {self.max_stall_cycles} cycles"
+            )
+            if channel in previous_payload:
+                assert payload == previous_payload[channel], (
+                    f"{self.prefix}_{channel} payload changed while valid and not ready"
+                )
+            previous_payload[channel] = payload
+            return {"valid": True, "ready": False, "fire": False}
+
+        previous_payload.pop(channel, None)
+        stall_cycles[channel] = 0
+        return {"valid": True, "ready": True, "fire": True}
+
+
 async def assert_stable_when_stalled(clock, reset, valid, ready, payload, name):
     previous = None
     while True:
@@ -181,24 +345,21 @@ def start_axis_assertions(
     )
 
 
-def start_axil_assertions(cocotb, dut, prefix="s_axi"):
-    for channel, payload_names in {
-        "aw": ["awaddr"],
-        "w": ["wdata", "wstrb"],
-        "ar": ["araddr"],
-        "b": ["bresp"],
-        "r": ["rdata", "rresp"],
-    }.items():
-        valid = getattr(dut, f"{prefix}_{channel}valid")
-        ready = getattr(dut, f"{prefix}_{channel}ready")
-        payload = [getattr(dut, f"{prefix}_{name}") for name in payload_names]
-        cocotb.start_soon(
-            assert_stable_when_stalled(
-                dut.clk,
-                dut.rst,
-                valid,
-                ready,
-                payload,
-                f"{prefix}_{channel}",
-            )
-        )
+def start_axil_assertions(cocotb, dut, prefix="s_axi", max_response_cycles=64, max_stall_cycles=256):
+    signals = {}
+    for channel in ("aw", "w", "b", "ar", "r"):
+        signals[f"{channel}valid"] = getattr(dut, f"{prefix}_{channel}valid")
+        signals[f"{channel}ready"] = getattr(dut, f"{prefix}_{channel}ready")
+    for name in ("awaddr", "wdata", "wstrb", "bresp", "araddr", "rdata", "rresp"):
+        signals[name] = getattr(dut, f"{prefix}_{name}")
+
+    cocotb.start_soon(
+        AxiLiteSlaveChecker(
+            clock=dut.clk,
+            reset=dut.rst,
+            prefix=prefix,
+            signals=signals,
+            max_response_cycles=max_response_cycles,
+            max_stall_cycles=max_stall_cycles,
+        ).run()
+    )

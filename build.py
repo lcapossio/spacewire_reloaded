@@ -30,9 +30,9 @@ def require_python_package(name: str) -> None:
         raise SystemExit(f"ERROR: required Python package is not installed: {name}")
 
 
-def run(args: list[str]) -> None:
+def run(args: list[str], *, env: dict[str, str] | None = None) -> None:
     print("+ " + " ".join(args), flush=True)
-    result = subprocess.run(args, cwd=ROOT)
+    result = subprocess.run(args, cwd=ROOT, env=env)
     if result.returncode != 0:
         raise SystemExit(result.returncode)
 
@@ -73,7 +73,10 @@ def run_test_wsl(args: argparse.Namespace) -> None:
     if not wsl_has_distro():
         raise SystemExit("ERROR: WSL is installed but no WSL distribution is visible to this user")
     pytest_args = " -v" if args.verbose else ""
-    command = f"cd {shlex.quote(wsl_repo_path())} && python3 build.py test --runner local{pytest_args}"
+    command = (
+        f"cd {shlex.quote(wsl_repo_path())} && "
+        f"python3 build.py test --runner local --hdl {shlex.quote(args.hdl)}{pytest_args}"
+    )
     run(["wsl", "-e", "bash", "-lc", command])
 
 
@@ -93,15 +96,29 @@ def cmd_test(args: argparse.Namespace) -> None:
         run_test_wsl(args)
         return
 
-    require_tool("iverilog")
-    require_tool("vvp")
+    if args.hdl in ("verilog", "all"):
+        require_tool("iverilog")
+        require_tool("vvp")
+    if args.hdl in ("vhdl", "all"):
+        require_tool("ghdl")
     require_python_package("pytest")
     require_python_package("cocotb")
     require_python_package("cocotbext.axi")
+    if args.hdl in ("vhdl", "all"):
+        require_python_package("cocotb_tools.runner")
+
+    env = os.environ.copy()
     pytest_args = [sys.executable, "-m", "pytest", "tests/cocotb"]
+    if args.hdl == "verilog":
+        pytest_args.extend(["-k", "verilog"])
+    elif args.hdl == "vhdl":
+        env["SPW_RUN_VHDL_COCOTB"] = "1"
+        pytest_args.extend(["-k", "vhdl"])
+    else:
+        env["SPW_RUN_VHDL_COCOTB"] = "1"
     if args.verbose:
         pytest_args.append("-v")
-    run(pytest_args)
+    run(pytest_args, env=env)
 
 
 def cmd_vivado(args: argparse.Namespace) -> None:
@@ -129,6 +146,12 @@ def main() -> int:
         help="choose where cocotb runs; auto prefers WSL on Windows when available",
     )
     test_parser.add_argument("-v", "--verbose", action="store_true", help="pass verbose output to pytest")
+    test_parser.add_argument(
+        "--hdl",
+        choices=("verilog", "vhdl", "all"),
+        default="verilog",
+        help="choose cocotb HDL targets; VHDL requires a working GHDL cocotb VPI install",
+    )
     test_parser.set_defaults(func=cmd_test)
 
     vivado_parser = subparsers.add_parser("vivado", help="run or check the Vivado build flow")
