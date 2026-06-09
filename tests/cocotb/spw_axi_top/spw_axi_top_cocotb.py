@@ -57,11 +57,23 @@ def nchar_frame(payload, terminator=0x00):
     return AxiStreamFrame(bytes([*payload, terminator]), tuser=[0] * len(payload) + [1])
 
 
+def frame_bytes(frame):
+    if isinstance(frame.tdata, int):
+        return bytes([frame.tdata])
+    return bytes(frame.tdata)
+
+
+def frame_user_bits(frame):
+    if isinstance(frame.tuser, int):
+        return [frame.tuser]
+    return list(frame.tuser)
+
+
 async def expect_frame(sink, payload, terminator=0x00, timeout="2ms"):
     received = await with_timeout(sink.recv(), 2, timeout[-2:] if timeout.endswith("ms") else "ms")
     expected = bytes([*payload, terminator])
-    assert bytes(received.tdata) == expected
-    assert list(received.tuser) == [0] * len(payload) + [1]
+    assert frame_bytes(received) == expected
+    assert frame_user_bits(received) == [0] * len(payload) + [1]
 
 
 async def send_and_scoreboard(source, sink, packets):
@@ -72,8 +84,8 @@ async def send_and_scoreboard(source, sink, packets):
 
     for payload, terminator in expected:
         received = await with_timeout(sink.recv(), 2, "ms")
-        assert bytes(received.tdata) == bytes([*payload, terminator])
-        assert list(received.tuser) == [0] * len(payload) + [1]
+        assert frame_bytes(received) == bytes([*payload, terminator])
+        assert frame_user_bits(received) == [0] * len(payload) + [1]
 
 
 def start_common_assertions(dut):
@@ -185,10 +197,6 @@ async def axi_top_recovers_from_stream_reset_and_link_reconnect(dut):
     partial.kill()
     source.clear()
     sink.clear()
-
-    axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
-    source = AxiStreamSource(AxiStreamBus.from_prefix(dut, "s_axis"), dut.clk, dut.rst)
-    sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "m_axis"), dut.clk, dut.rst)
     source.set_pause_generator(pause_cycles([False, False, True, False]))
     sink.set_pause_generator(pause_cycles([True, False, False, False]))
 

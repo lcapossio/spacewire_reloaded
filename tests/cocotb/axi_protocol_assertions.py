@@ -5,20 +5,41 @@
 from cocotb.triggers import RisingEdge
 
 
-def value(signal):
-    return int(signal.value)
+def resolved_value(signal):
+    try:
+        return int(signal.value)
+    except ValueError:
+        return None
+
+
+def resolved_payload(payload):
+    values = []
+    for signal in payload:
+        value = resolved_value(signal)
+        if value is None:
+            return None
+        values.append(value)
+    return tuple(values)
 
 
 async def assert_stable_when_stalled(clock, reset, valid, ready, payload, name):
     previous = None
     while True:
         await RisingEdge(clock)
-        if value(reset):
+        reset_value = resolved_value(reset)
+        if reset_value is None or reset_value:
             previous = None
             continue
 
-        stalled = value(valid) and not value(ready)
-        current = tuple(value(signal) for signal in payload)
+        valid_value = resolved_value(valid)
+        ready_value = resolved_value(ready)
+        if valid_value != 1 or ready_value is None:
+            previous = None
+            continue
+
+        stalled = ready_value == 0
+        current = resolved_payload(payload)
+        assert current is not None, f"{name} payload unresolved while valid"
 
         if stalled and previous is not None:
             assert current == previous, f"{name} payload changed while valid and not ready"

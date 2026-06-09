@@ -67,6 +67,18 @@ def make_axil_master(dut):
     return master
 
 
+def initialize_manual_axil_signals(dut):
+    dut.s_axi_awaddr.value = 0
+    dut.s_axi_awvalid.value = 0
+    dut.s_axi_wdata.value = 0
+    dut.s_axi_wstrb.value = 0
+    dut.s_axi_wvalid.value = 0
+    dut.s_axi_bready.value = 0
+    dut.s_axi_araddr.value = 0
+    dut.s_axi_arvalid.value = 0
+    dut.s_axi_rready.value = 0
+
+
 async def axil_write_dword(master, addr, data):
     resp = await master.write_dword(addr, data)
     assert resp is None
@@ -74,6 +86,25 @@ async def axil_write_dword(master, addr, data):
 
 async def axil_read_dword(master, addr):
     return await master.read_dword(addr)
+
+
+async def wait_handshake(dut, valid, ready, name, max_cycles=64):
+    for _ in range(max_cycles):
+        await Timer(1, units="ns")
+        if value(valid) and value(ready):
+            await RisingEdge(dut.clk)
+            return
+        await RisingEdge(dut.clk)
+    raise AssertionError(f"timed out waiting for {name} handshake")
+
+
+async def wait_signal_high(dut, signal, name, max_cycles=64):
+    for _ in range(max_cycles):
+        await Timer(1, units="ns")
+        if value(signal):
+            return
+        await RisingEdge(dut.clk)
+    raise AssertionError(f"timed out waiting for {name}")
 
 
 async def manual_write_aw_then_w(dut, addr, data, wstrb=0xF, aw_delay=0, w_delay=4, bready_delay=3):
@@ -87,24 +118,19 @@ async def manual_write_aw_then_w(dut, addr, data, wstrb=0xF, aw_delay=0, w_delay
     for _ in range(aw_delay):
         await RisingEdge(dut.clk)
     dut.s_axi_awvalid.value = 1
-    while not (value(dut.s_axi_awvalid) and value(dut.s_axi_awready)):
-        await RisingEdge(dut.clk)
-    await RisingEdge(dut.clk)
+    await wait_handshake(dut, dut.s_axi_awvalid, dut.s_axi_awready, "AW")
     dut.s_axi_awvalid.value = 0
 
     for _ in range(w_delay):
         await RisingEdge(dut.clk)
     dut.s_axi_wvalid.value = 1
-    while not (value(dut.s_axi_wvalid) and value(dut.s_axi_wready)):
-        await RisingEdge(dut.clk)
-    await RisingEdge(dut.clk)
+    await wait_handshake(dut, dut.s_axi_wvalid, dut.s_axi_wready, "W")
     dut.s_axi_wvalid.value = 0
 
     for _ in range(bready_delay):
         await RisingEdge(dut.clk)
     dut.s_axi_bready.value = 1
-    while not value(dut.s_axi_bvalid):
-        await RisingEdge(dut.clk)
+    await wait_signal_high(dut, dut.s_axi_bvalid, "BVALID")
     assert value(dut.s_axi_bresp) == 0
     await RisingEdge(dut.clk)
     dut.s_axi_bready.value = 0
@@ -121,24 +147,19 @@ async def manual_write_w_then_aw(dut, addr, data, wstrb=0xF, w_delay=0, aw_delay
     for _ in range(w_delay):
         await RisingEdge(dut.clk)
     dut.s_axi_wvalid.value = 1
-    while not (value(dut.s_axi_wvalid) and value(dut.s_axi_wready)):
-        await RisingEdge(dut.clk)
-    await RisingEdge(dut.clk)
+    await wait_handshake(dut, dut.s_axi_wvalid, dut.s_axi_wready, "W")
     dut.s_axi_wvalid.value = 0
 
     for _ in range(aw_delay):
         await RisingEdge(dut.clk)
     dut.s_axi_awvalid.value = 1
-    while not (value(dut.s_axi_awvalid) and value(dut.s_axi_awready)):
-        await RisingEdge(dut.clk)
-    await RisingEdge(dut.clk)
+    await wait_handshake(dut, dut.s_axi_awvalid, dut.s_axi_awready, "AW")
     dut.s_axi_awvalid.value = 0
 
     for _ in range(bready_delay):
         await RisingEdge(dut.clk)
     dut.s_axi_bready.value = 1
-    while not value(dut.s_axi_bvalid):
-        await RisingEdge(dut.clk)
+    await wait_signal_high(dut, dut.s_axi_bvalid, "BVALID")
     assert value(dut.s_axi_bresp) == 0
     await RisingEdge(dut.clk)
     dut.s_axi_bready.value = 0
@@ -318,17 +339,24 @@ async def axi_lite_recovers_from_reset_with_response_pending(dut):
 async def axi_lite_accepts_independent_aw_w_ordering(dut):
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
     start_common_assertions(dut)
-    axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
+    initialize_manual_axil_signals(dut)
     await reset_dut(dut)
 
     await manual_write_aw_then_w(dut, REG_CONTROL, 0x00000006, w_delay=7, bready_delay=5)
-    assert await axil_read_dword(axil, REG_CONTROL) == 0x00000006
+    assert value(dut.autostart) == 1
+    assert value(dut.linkstart) == 1
+    assert value(dut.linkdis) == 0
 
     await manual_write_w_then_aw(dut, REG_CONTROL, 0x00000008, aw_delay=7, bready_delay=5)
-    assert await axil_read_dword(axil, REG_CONTROL) == 0x00000008
+    assert value(dut.autostart) == 0
+    assert value(dut.linkstart) == 0
+    assert value(dut.linkdis) == 1
 
     await manual_write_aw_then_w(dut, REG_TXDIVCNT, 0x000000A5, wstrb=0x1, w_delay=5)
-    assert await axil_read_dword(axil, REG_TXDIVCNT) == 0x000000A5
+    assert value(dut.txdivcnt) == 0xA5
 
     await manual_write_w_then_aw(dut, REG_TXDIVCNT, 0x0000003C, wstrb=0x1, aw_delay=5)
+    assert value(dut.txdivcnt) == 0x3C
+
+    axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
     assert await axil_read_dword(axil, REG_TXDIVCNT) == 0x0000003C

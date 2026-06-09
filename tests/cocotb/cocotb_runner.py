@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
@@ -67,9 +68,30 @@ def run_icarus(
     env["TOPLEVEL_LANG"] = "verilog"
     env["PYGPI_PYTHON_BIN"] = sys.executable
     env["PYTHONPATH"] = str(test_dir) + os.pathsep + env.get("PYTHONPATH", "")
+    results_file = build_dir / "results.xml"
+    if results_file.exists():
+        results_file.unlink()
+    env["COCOTB_RESULTS_FILE"] = str(results_file)
 
     run(
         ["vvp", "-M", cocotb_lib_dir(), "-m", "cocotbvpi_icarus", str(sim_file)],
         cwd=ROOT,
         env=env,
     )
+
+    if not results_file.exists():
+        raise RuntimeError(f"cocotb did not write results file: {results_file}")
+
+    results = ET.parse(results_file)
+    failures = []
+    for testcase in results.findall(".//testcase"):
+        failure = testcase.find("failure")
+        error = testcase.find("error")
+        if failure is not None or error is not None:
+            detail = failure if failure is not None else error
+            failures.append(
+                f"{testcase.get('classname')}.{testcase.get('name')}: "
+                f"{detail.get('error_msg') or detail.text or 'failed'}"
+            )
+    if failures:
+        raise RuntimeError("cocotb failures:\n" + "\n".join(failures))
