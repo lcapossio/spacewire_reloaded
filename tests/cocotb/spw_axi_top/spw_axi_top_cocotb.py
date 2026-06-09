@@ -95,7 +95,7 @@ async def send_and_scoreboard(source, sink, packets):
 def start_common_assertions(dut):
     start_axil_assertions(cocotb, dut)
     start_axis_assertions(cocotb, dut, "s_axis")
-    start_axis_assertions(cocotb, dut, "m_axis")
+    start_axis_assertions(cocotb, dut, "m_axis", reset_must_clear_valid=True)
 
 
 @cocotb.test()
