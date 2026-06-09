@@ -26,10 +26,10 @@ module spw_axis_rx (
 
     wire output_valid = rxvalid && !rst;
 
-    assign m_axis_tdata = rxdata;
+    assign m_axis_tdata = rxflag ? {7'd0, rxdata[0]} : rxdata;
     assign m_axis_tvalid = output_valid;
     assign m_axis_tlast = rxflag;
-    assign m_axis_tuser[0] = rxflag;
+    assign m_axis_tuser[0] = rxflag && rxdata[0];
     assign rxread = output_valid && m_axis_tready;
 
 endmodule

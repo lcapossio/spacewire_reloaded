@@ -54,7 +54,11 @@ async def configure_running(axil):
 
 
 def nchar_frame(payload, terminator=0x00):
-    return AxiStreamFrame(bytes([*payload, terminator]), tuser=[0] * len(payload) + [1])
+    return AxiStreamFrame(bytes([*payload, terminator]), tuser=[0] * len(payload) + [terminator & 1])
+
+
+def expected_user_bits(payload, terminator):
+    return [0] * len(payload) + [terminator & 1]
 
 
 def frame_bytes(frame):
@@ -65,7 +69,7 @@ def frame_bytes(frame):
 
 def frame_user_bits(frame):
     if isinstance(frame.tuser, int):
-        return [frame.tuser]
+        return [frame.tuser] * len(frame_bytes(frame))
     return list(frame.tuser)
 
 
@@ -73,7 +77,7 @@ async def expect_frame(sink, payload, terminator=0x00, timeout="2ms"):
     received = await with_timeout(sink.recv(), 2, timeout[-2:] if timeout.endswith("ms") else "ms")
     expected = bytes([*payload, terminator])
     assert frame_bytes(received) == expected
-    assert frame_user_bits(received) == [0] * len(payload) + [1]
+    assert frame_user_bits(received) == expected_user_bits(payload, terminator)
 
 
 async def send_and_scoreboard(source, sink, packets):
@@ -85,7 +89,7 @@ async def send_and_scoreboard(source, sink, packets):
     for payload, terminator in expected:
         received = await with_timeout(sink.recv(), 2, "ms")
         assert frame_bytes(received) == bytes([*payload, terminator])
-        assert frame_user_bits(received) == [0] * len(payload) + [1]
+        assert frame_user_bits(received) == expected_user_bits(payload, terminator)
 
 
 def start_common_assertions(dut):
@@ -117,12 +121,11 @@ async def axi_top_loops_axis_packet_through_spw_link(dut):
     await configure_running(axil)
 
     payload = bytes([0x40 + i for i in range(12)] + [0x00])
-    frame = AxiStreamFrame(payload, tuser=[0] * 12 + [1])
-    await source.send(frame)
+    await source.send(nchar_frame([0x40 + i for i in range(12)], 0x00))
     received = await with_timeout(sink.recv(), 2, "ms")
 
     assert bytes(received.tdata) == payload
-    assert list(received.tuser) == [0] * 12 + [1]
+    assert frame_user_bits(received) == [0] * 13
 
     write_task = cocotb.start_soon(axil.write_dword(REG_TIMECODE_TX, 0x80000095))
     await with_timeout(write_task, 100, "us")

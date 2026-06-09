@@ -33,10 +33,10 @@ begin
 
     output_valid <= rxvalid and not rst;
 
-    m_axis_tdata    <= rxdata;
+    m_axis_tdata    <= "0000000" & rxdata(0) when rxflag = '1' else rxdata;
     m_axis_tvalid   <= output_valid;
     m_axis_tlast    <= rxflag;
-    m_axis_tuser(0) <= rxflag;
+    m_axis_tuser(0) <= rxflag and rxdata(0);
 
     rxread <= output_valid and m_axis_tready;
 

@@ -4,7 +4,7 @@
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, Timer
+from cocotb.triggers import RisingEdge, Timer, with_timeout
 from cocotbext.axi import AxiStreamBus, AxiStreamSink
 from tests.cocotb.axi_protocol_assertions import start_axis_assertions
 
@@ -26,6 +26,30 @@ async def reset_dut(dut):
     await RisingEdge(dut.clk)
 
 
+async def send_rx_chars(dut, chars):
+    dut.rxvalid.value = 1
+    for data, flag in chars:
+        dut.rxdata.value = data
+        dut.rxflag.value = flag
+        for _ in range(64):
+            await Timer(1, units="ns")
+            if dut.rxread.value == 1:
+                await RisingEdge(dut.clk)
+                break
+            await RisingEdge(dut.clk)
+        else:
+            raise AssertionError("timed out waiting for rxread")
+
+    dut.rxvalid.value = 0
+    dut.rxflag.value = 0
+
+
+def frame_user_bits(frame):
+    if isinstance(frame.tuser, int):
+        return [frame.tuser] * len(frame.tdata)
+    return list(frame.tuser)
+
+
 @cocotb.test()
 async def axis_rx_maps_spw_rx_to_nchar_stream(dut):
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
@@ -34,24 +58,15 @@ async def axis_rx_maps_spw_rx_to_nchar_stream(dut):
     sink.set_pause_generator(pause_cycles([True, False, False, True, False]))
     await reset_dut(dut)
 
-    dut.rxvalid.value = 1
-    dut.rxflag.value = 0
-    dut.rxdata.value = 0x33
-
-    while dut.rxread.value == 0:
-        await RisingEdge(dut.clk)
-    await RisingEdge(dut.clk)
-    dut.rxflag.value = 1
-    dut.rxdata.value = 0x01
-
-    while dut.rxread.value == 0:
-        await RisingEdge(dut.clk)
-    await RisingEdge(dut.clk)
-    dut.rxvalid.value = 0
-
-    frame = await sink.recv()
+    await send_rx_chars(dut, [(0x33, 0), (0x01, 1)])
+    frame = await with_timeout(sink.recv(), 1, "us")
     assert bytes(frame.tdata) == bytes([0x33, 0x01])
-    assert list(frame.tuser) == [0, 1]
+    assert frame_user_bits(frame) == [0, 1]
+
+    await send_rx_chars(dut, [(0x44, 0), (0x00, 1)])
+    frame = await with_timeout(sink.recv(), 1, "us")
+    assert bytes(frame.tdata) == bytes([0x44, 0x00])
+    assert frame_user_bits(frame) == [0, 0]
 
     dut.rst.value = 1
     await Timer(1, units="ns")

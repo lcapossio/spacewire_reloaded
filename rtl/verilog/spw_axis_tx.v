@@ -26,7 +26,7 @@ module spw_axis_tx (
 
     assign s_axis_tready = txrdy && !rst;
     assign txwrite = s_axis_tvalid && txrdy && !rst;
-    assign txflag = s_axis_tuser[0];
-    assign txdata = s_axis_tdata;
+    assign txflag = s_axis_tlast;
+    assign txdata = s_axis_tlast ? {7'd0, s_axis_tuser[0]} : s_axis_tdata;
 
 endmodule

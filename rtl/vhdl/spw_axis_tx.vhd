@@ -35,7 +35,7 @@ begin
     s_axis_tready <= txrdy and not rst;
 
     txwrite <= accept_char;
-    txflag  <= s_axis_tuser(0);
-    txdata  <= s_axis_tdata;
+    txflag  <= s_axis_tlast;
+    txdata  <= "0000000" & s_axis_tuser(0) when s_axis_tlast = '1' else s_axis_tdata;
 
 end architecture rtl;

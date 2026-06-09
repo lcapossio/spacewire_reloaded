@@ -99,8 +99,8 @@ The first LGPL AXI replacement slice is in progress:
 The AXI-Stream data path is currently an N-Char stream:
 
 - `tdata[7:0]` carries a data byte, EOP code, or EEP code.
-- `tuser[0]` carries the SpaceWire control flag.
 - `tlast` is asserted on EOP/EEP control characters.
+- `tuser[0]` is meaningful only when `tlast` is asserted: `0` selects EOP, and `1` selects EEP.
 
 This preserves SpaceWire's explicit EOP/EEP characters and avoids hiding them inside the previous data byte.
 
