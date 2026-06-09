@@ -190,9 +190,9 @@ async def manual_write_w_then_aw(dut, addr, data, wstrb=0xF, w_delay=0, aw_delay
 @cocotb.test()
 async def axi_lite_registers_drive_spw_controls(dut):
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    await reset_dut(dut)
     start_common_assertions(dut)
     axil = make_axil_master(dut)
-    await reset_dut(dut)
 
     assert await axil_read_dword(axil, REG_CORE_ID) == 0x53505752
     assert await axil_read_dword(axil, REG_VERSION) == 0x00010000
@@ -220,9 +220,9 @@ async def axi_lite_registers_drive_spw_controls(dut):
 @cocotb.test()
 async def axi_lite_timecodes_errors_and_irq_are_sticky_until_cleared(dut):
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    await reset_dut(dut)
     start_common_assertions(dut)
     axil = make_axil_master(dut)
-    await reset_dut(dut)
 
     write_task = cocotb.start_soon(axil.write_dword(REG_TIMECODE_TX, 0x80000095))
     saw_tick = False
@@ -264,9 +264,9 @@ async def axi_lite_timecodes_errors_and_irq_are_sticky_until_cleared(dut):
 @cocotb.test()
 async def axi_lite_randomized_register_backpressure_and_strobes(dut):
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    await reset_dut(dut)
     start_common_assertions(dut)
     axil = make_axil_master(dut)
-    await reset_dut(dut)
 
     expected_control = 0
     expected_txdiv = 0
@@ -327,9 +327,9 @@ async def axi_lite_randomized_register_backpressure_and_strobes(dut):
 @cocotb.test()
 async def axi_lite_recovers_from_reset_with_response_pending(dut):
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    await reset_dut(dut)
     start_common_assertions(dut)
     axil = make_axil_master(dut)
-    await reset_dut(dut)
 
     axil.write_if.b_channel.set_pause_generator(pause_cycles([True]))
     pending_write = cocotb.start_soon(axil.write_dword(REG_CONTROL, 0x0000000E))
@@ -360,9 +360,9 @@ async def axi_lite_recovers_from_reset_with_response_pending(dut):
 @cocotb.test()
 async def axi_lite_accepts_independent_aw_w_ordering(dut):
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
-    start_common_assertions(dut)
     initialize_manual_axil_signals(dut)
     await reset_dut(dut)
+    start_common_assertions(dut)
 
     await manual_write_aw_then_w(dut, REG_CONTROL, 0x00000006, w_delay=7, bready_delay=5)
     assert value(dut.autostart) == 1
@@ -387,9 +387,9 @@ async def axi_lite_accepts_independent_aw_w_ordering(dut):
 @cocotb.test()
 async def axi_lite_sticky_events_survive_simultaneous_clear(dut):
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
-    start_common_assertions(dut)
     initialize_manual_axil_signals(dut)
     await reset_dut(dut)
+    start_common_assertions(dut)
 
     dut.errdisc.value = 1
     await manual_write_aw_then_w(dut, REG_ERROR, 0x00000001, w_delay=3)

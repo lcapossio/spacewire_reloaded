@@ -21,9 +21,9 @@ async def reset_dut(dut):
 @cocotb.test()
 async def axis_tx_maps_nchars_to_spw_tx(dut):
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    await reset_dut(dut)
     start_axis_assertions(cocotb, dut, "s_axis")
     source = AxiStreamSource(AxiStreamBus.from_prefix(dut, "s_axis"), dut.clk, dut.rst)
-    await reset_dut(dut)
 
     dut.txrdy.value = 0
     source.send_nowait(AxiStreamFrame([0x5A, 0x00], tuser=[1, 0]))

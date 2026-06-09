@@ -53,10 +53,10 @@ def frame_user_bits(frame):
 @cocotb.test()
 async def axis_rx_maps_spw_rx_to_nchar_stream(dut):
     cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    await reset_dut(dut)
     start_axis_assertions(cocotb, dut, "m_axis", reset_must_clear_valid=True)
     sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "m_axis"), dut.clk, dut.rst)
     sink.set_pause_generator(pause_cycles([True, False, False, True, False]))
-    await reset_dut(dut)
 
     await send_rx_chars(dut, [(0x33, 0), (0x01, 1)])
     frame = await with_timeout(sink.recv(), 1, "us")

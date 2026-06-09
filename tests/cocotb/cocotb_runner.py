@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from collections.abc import MutableMapping
 from pathlib import Path
 
 
@@ -35,6 +36,31 @@ def cocotb_lib_dir() -> str:
         check=True,
     )
     return result.stdout.strip()
+
+
+def ghdl_vpi_lib_dir() -> str:
+    result = subprocess.run(
+        ["ghdl", "--vpi-library-dir"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+def ghdl_dll_dirs() -> list[str]:
+    paths = [ghdl_vpi_lib_dir()]
+    ghdl_exe = shutil.which("ghdl")
+    if ghdl_exe is not None:
+        paths.append(str(Path(ghdl_exe).resolve().parent))
+    return paths
+
+
+def prepend_env_path(env: MutableMapping[str, str], paths: list[str]) -> str:
+    path_key = next((key for key in env if key.lower() == "path"), "PATH")
+    env[path_key] = os.pathsep.join([*paths, env.get(path_key, "")])
+    return path_key
 
 
 def parse_cocotb_results(results_file: Path) -> None:
@@ -132,17 +158,29 @@ def run_ghdl(
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(test_dir) + os.pathsep + env.get("PYTHONPATH", "")
-    runner.test(
-        test_module=test_module,
-        hdl_toplevel=top,
-        hdl_toplevel_library="top",
-        hdl_toplevel_lang="vhdl",
-        build_dir=build_dir,
-        test_dir=build_dir,
-        results_xml=str(results_file),
-        test_args=["--std=08"],
-        parameters=generics or {},
-        extra_env=env,
-    )
+    python_dir = str(Path(sys.executable).resolve().parent)
+    dll_paths = [cocotb_lib_dir(), *ghdl_dll_dirs(), python_dir]
+    prepend_env_path(env, dll_paths)
+    process_path_key = next((key for key in os.environ if key.lower() == "path"), "PATH")
+    old_process_path = os.environ.get(process_path_key)
+    prepend_env_path(os.environ, dll_paths)
+    try:
+        runner.test(
+            test_module=test_module,
+            hdl_toplevel=top,
+            hdl_toplevel_library="top",
+            hdl_toplevel_lang="vhdl",
+            build_dir=build_dir,
+            test_dir=build_dir,
+            results_xml=str(results_file),
+            test_args=["--std=08"],
+            parameters=generics or {},
+            extra_env=env,
+        )
+    finally:
+        if old_process_path is None:
+            os.environ.pop(process_path_key, None)
+        else:
+            os.environ[process_path_key] = old_process_path
 
     parse_cocotb_results(results_file)
