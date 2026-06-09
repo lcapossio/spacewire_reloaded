@@ -20,7 +20,7 @@ async def reset_dut(dut):
 
 @cocotb.test()
 async def axis_tx_maps_nchars_to_spw_tx(dut):
-    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     await reset_dut(dut)
     start_axis_assertions(cocotb, dut, "s_axis")
     source = AxiStreamSource(AxiStreamBus.from_prefix(dut, "s_axis"), dut.clk, dut.rst)
@@ -31,7 +31,7 @@ async def axis_tx_maps_nchars_to_spw_tx(dut):
     accepted = []
     for cycle in range(24):
         dut.txrdy.value = 1 if cycle not in {1, 2, 7} else 0
-        await Timer(1, units="ns")
+        await Timer(1, unit="ns")
         if dut.txwrite.value == 1:
             accepted.append((int(dut.txdata.value), int(dut.txflag.value)))
         await RisingEdge(dut.clk)
@@ -44,7 +44,7 @@ async def axis_tx_maps_nchars_to_spw_tx(dut):
     accepted = []
     for _ in range(8):
         dut.txrdy.value = 1
-        await Timer(1, units="ns")
+        await Timer(1, unit="ns")
         if dut.txwrite.value == 1:
             accepted.append((int(dut.txdata.value), int(dut.txflag.value)))
         await RisingEdge(dut.clk)
@@ -54,11 +54,11 @@ async def axis_tx_maps_nchars_to_spw_tx(dut):
     assert source.empty()
 
     dut.txrdy.value = 0
-    await Timer(1, units="ns")
+    await Timer(1, unit="ns")
     assert dut.s_axis_tready.value == 0
     assert dut.txwrite.value == 0
 
     dut.rst.value = 1
-    await Timer(1, units="ns")
+    await Timer(1, unit="ns")
     assert dut.s_axis_tready.value == 0
     assert dut.txwrite.value == 0

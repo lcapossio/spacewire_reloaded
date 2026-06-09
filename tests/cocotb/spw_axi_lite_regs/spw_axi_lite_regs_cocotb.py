@@ -90,7 +90,7 @@ async def axil_read_dword(master, addr):
 
 async def wait_handshake(dut, valid, ready, name, max_cycles=64):
     for _ in range(max_cycles):
-        await Timer(1, units="ns")
+        await Timer(1, unit="ns")
         if value(valid) and value(ready):
             await RisingEdge(dut.clk)
             return
@@ -100,7 +100,7 @@ async def wait_handshake(dut, valid, ready, name, max_cycles=64):
 
 async def wait_signal_high(dut, signal, name, max_cycles=64):
     for _ in range(max_cycles):
-        await Timer(1, units="ns")
+        await Timer(1, unit="ns")
         if value(signal):
             return
         await RisingEdge(dut.clk)
@@ -189,7 +189,7 @@ async def manual_write_w_then_aw(dut, addr, data, wstrb=0xF, w_delay=0, aw_delay
 
 @cocotb.test()
 async def axi_lite_registers_drive_spw_controls(dut):
-    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     await reset_dut(dut)
     start_common_assertions(dut)
     axil = make_axil_master(dut)
@@ -219,7 +219,7 @@ async def axi_lite_registers_drive_spw_controls(dut):
 
 @cocotb.test()
 async def axi_lite_timecodes_errors_and_irq_are_sticky_until_cleared(dut):
-    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     await reset_dut(dut)
     start_common_assertions(dut)
     axil = make_axil_master(dut)
@@ -228,7 +228,7 @@ async def axi_lite_timecodes_errors_and_irq_are_sticky_until_cleared(dut):
     saw_tick = False
     for _ in range(16):
         await RisingEdge(dut.clk)
-        await Timer(1, units="ns")
+        await Timer(1, unit="ns")
         if value(dut.tick_in) == 1:
             saw_tick = True
             assert value(dut.ctrl_in) == 2
@@ -236,7 +236,7 @@ async def axi_lite_timecodes_errors_and_irq_are_sticky_until_cleared(dut):
     await with_timeout(write_task, 100, "ns")
     assert saw_tick
     await RisingEdge(dut.clk)
-    await Timer(1, units="ns")
+    await Timer(1, unit="ns")
     assert value(dut.tick_in) == 0
 
     dut.tick_out.value = 1
@@ -257,13 +257,13 @@ async def axi_lite_timecodes_errors_and_irq_are_sticky_until_cleared(dut):
     assert value(dut.irq) == 1
     await axil.write(REG_ERROR, bytes([0x01]))
     assert await axil_read_dword(axil, REG_ERROR) == 0x00000000
-    await Timer(1, units="ns")
+    await Timer(1, unit="ns")
     assert value(dut.irq) == 0
 
 
 @cocotb.test()
 async def axi_lite_randomized_register_backpressure_and_strobes(dut):
-    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     await reset_dut(dut)
     start_common_assertions(dut)
     axil = make_axil_master(dut)
@@ -326,7 +326,7 @@ async def axi_lite_randomized_register_backpressure_and_strobes(dut):
 
 @cocotb.test()
 async def axi_lite_recovers_from_reset_with_response_pending(dut):
-    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     await reset_dut(dut)
     start_common_assertions(dut)
     axil = make_axil_master(dut)
@@ -359,7 +359,7 @@ async def axi_lite_recovers_from_reset_with_response_pending(dut):
 
 @cocotb.test()
 async def axi_lite_accepts_independent_aw_w_ordering(dut):
-    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     initialize_manual_axil_signals(dut)
     await reset_dut(dut)
     start_common_assertions(dut)
@@ -386,7 +386,7 @@ async def axi_lite_accepts_independent_aw_w_ordering(dut):
 
 @cocotb.test()
 async def axi_lite_sticky_events_survive_simultaneous_clear(dut):
-    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     initialize_manual_axil_signals(dut)
     await reset_dut(dut)
     start_common_assertions(dut)

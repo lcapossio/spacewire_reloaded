@@ -2,9 +2,12 @@
 # Copyright (C) 2026 Leonardo Capossio - bard0 design
 # Author: Leonardo Capossio - bard0 design - hello@bard0.com
 
+import os
 from pathlib import Path
 
-from tests.cocotb.cocotb_runner import ROOT, run_icarus
+import pytest
+
+from tests.cocotb.cocotb_runner import ROOT, run_ghdl, run_icarus
 
 
 VERILOG_RTL = [
@@ -24,6 +27,24 @@ VERILOG_RTL = [
 ]
 
 
+VHDL_RTL = [
+    "rtl/vhdl/spwpkg.vhd",
+    "rtl/vhdl/spwlink.vhd",
+    "rtl/vhdl/spwrecv.vhd",
+    "rtl/vhdl/spwxmit.vhd",
+    "rtl/vhdl/spwxmit_fast.vhd",
+    "rtl/vhdl/spwrecvfront_generic.vhd",
+    "rtl/vhdl/spwrecvfront_fast.vhd",
+    "rtl/vhdl/syncdff.vhd",
+    "rtl/vhdl/spwram.vhd",
+    "rtl/vhdl/spwstream.vhd",
+    "rtl/vhdl/spw_axis_tx.vhd",
+    "rtl/vhdl/spw_axis_rx.vhd",
+    "rtl/vhdl/spw_axi_lite_regs.vhd",
+    "rtl/vhdl/spw_axi_top.vhd",
+]
+
+
 def test_spw_axi_top_loopback_verilog():
     test_dir = Path(__file__).resolve().parent
     run_icarus(
@@ -32,4 +53,19 @@ def test_spw_axi_top_loopback_verilog():
         verilog_sources=[*(ROOT / path for path in VERILOG_RTL), test_dir / "spw_axi_top_loop_tb.v"],
         test_dir=test_dir,
         build_dir=ROOT / "build" / "cocotb" / "spw_axi_top_loop_verilog",
+    )
+
+
+@pytest.mark.skipif(
+    os.environ.get("SPW_RUN_VHDL_COCOTB") != "1",
+    reason="VHDL cocotb tests are enabled by build.py test --hdl vhdl/all",
+)
+def test_spw_axi_top_loopback_vhdl():
+    test_dir = Path(__file__).resolve().parent
+    run_ghdl(
+        top="spw_axi_top_loop_tb",
+        test_module="spw_axi_top_cocotb",
+        vhdl_sources=[*(ROOT / path for path in VHDL_RTL), test_dir / "spw_axi_top_loop_tb.vhd"],
+        test_dir=test_dir,
+        build_dir=ROOT / "build" / "cocotb" / "spw_axi_top_loop_vhdl",
     )

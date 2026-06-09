@@ -39,6 +39,24 @@ async def reset_dut(dut):
     await RisingEdge(dut.clk)
 
 
+def initialize_bus_inputs(dut):
+    dut.rst.value = 0
+    dut.s_axi_awaddr.value = 0
+    dut.s_axi_awvalid.value = 0
+    dut.s_axi_wdata.value = 0
+    dut.s_axi_wstrb.value = 0
+    dut.s_axi_wvalid.value = 0
+    dut.s_axi_bready.value = 0
+    dut.s_axi_araddr.value = 0
+    dut.s_axi_arvalid.value = 0
+    dut.s_axi_rready.value = 0
+    dut.s_axis_tdata.value = 0
+    dut.s_axis_tvalid.value = 0
+    dut.s_axis_tlast.value = 0
+    dut.s_axis_tuser.value = 0
+    dut.m_axis_tready.value = 0
+
+
 async def wait_running(axil):
     for _ in range(30000):
         status = await axil.read_dword(REG_STATUS)
@@ -100,9 +118,11 @@ def start_common_assertions(dut):
 
 @cocotb.test()
 async def axi_top_loops_axis_packet_through_spw_link(dut):
-    cocotb.start_soon(Clock(dut.clk, 50, units="ns").start())
-    cocotb.start_soon(Clock(dut.rxclk, 20, units="ns").start())
-    cocotb.start_soon(Clock(dut.txclk, 20, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 50, unit="ns").start())
+    cocotb.start_soon(Clock(dut.rxclk, 20, unit="ns").start())
+    cocotb.start_soon(Clock(dut.txclk, 20, unit="ns").start())
+    initialize_bus_inputs(dut)
+    await reset_dut(dut)
     start_common_assertions(dut)
 
     axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
@@ -117,7 +137,6 @@ async def axi_top_loops_axis_packet_through_spw_link(dut):
     source.set_pause_generator(pause_cycles([False, False, True, False]))
     sink.set_pause_generator(pause_cycles([True, False, False, False, True, False]))
 
-    await reset_dut(dut)
     await configure_running(axil)
 
     payload = bytes([0x40 + i for i in range(12)] + [0x00])
@@ -143,9 +162,11 @@ async def axi_top_loops_axis_packet_through_spw_link(dut):
 
 @cocotb.test()
 async def axi_top_scores_multiple_packets_eop_eep_and_boundary_stalls(dut):
-    cocotb.start_soon(Clock(dut.clk, 50, units="ns").start())
-    cocotb.start_soon(Clock(dut.rxclk, 20, units="ns").start())
-    cocotb.start_soon(Clock(dut.txclk, 20, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 50, unit="ns").start())
+    cocotb.start_soon(Clock(dut.rxclk, 20, unit="ns").start())
+    cocotb.start_soon(Clock(dut.txclk, 20, unit="ns").start())
+    initialize_bus_inputs(dut)
+    await reset_dut(dut)
     start_common_assertions(dut)
 
     axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
@@ -160,7 +181,6 @@ async def axi_top_scores_multiple_packets_eop_eep_and_boundary_stalls(dut):
     source.set_pause_generator(pause_cycles([False, False, True, False, True, False, False]))
     sink.set_pause_generator(pause_cycles([True, True, False, False, True, False]))
 
-    await reset_dut(dut)
     await configure_running(axil)
 
     packets = [
@@ -176,9 +196,11 @@ async def axi_top_scores_multiple_packets_eop_eep_and_boundary_stalls(dut):
 
 @cocotb.test()
 async def axi_top_recovers_from_stream_reset_and_link_reconnect(dut):
-    cocotb.start_soon(Clock(dut.clk, 50, units="ns").start())
-    cocotb.start_soon(Clock(dut.rxclk, 20, units="ns").start())
-    cocotb.start_soon(Clock(dut.txclk, 20, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 50, unit="ns").start())
+    cocotb.start_soon(Clock(dut.rxclk, 20, unit="ns").start())
+    cocotb.start_soon(Clock(dut.txclk, 20, unit="ns").start())
+    initialize_bus_inputs(dut)
+    await reset_dut(dut)
     start_common_assertions(dut)
 
     axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
@@ -187,7 +209,6 @@ async def axi_top_recovers_from_stream_reset_and_link_reconnect(dut):
     source.set_pause_generator(pause_cycles([False, True, False, False]))
     sink.set_pause_generator(pause_cycles([False, False, True, False]))
 
-    await reset_dut(dut)
     await configure_running(axil)
 
     partial = cocotb.start_soon(source.send(nchar_frame([0x30 + i for i in range(10)], 0x00)))

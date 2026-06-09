@@ -32,7 +32,7 @@ async def send_rx_chars(dut, chars):
         dut.rxdata.value = data
         dut.rxflag.value = flag
         for _ in range(64):
-            await Timer(1, units="ns")
+            await Timer(1, unit="ns")
             if dut.rxread.value == 1:
                 await RisingEdge(dut.clk)
                 break
@@ -52,7 +52,7 @@ def frame_user_bits(frame):
 
 @cocotb.test()
 async def axis_rx_maps_spw_rx_to_nchar_stream(dut):
-    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     await reset_dut(dut)
     start_axis_assertions(cocotb, dut, "m_axis", reset_must_clear_valid=True)
     sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "m_axis"), dut.clk, dut.rst)
@@ -69,6 +69,6 @@ async def axis_rx_maps_spw_rx_to_nchar_stream(dut):
     assert frame_user_bits(frame) == [0, 0]
 
     dut.rst.value = 1
-    await Timer(1, units="ns")
+    await Timer(1, unit="ns")
     assert dut.m_axis_tvalid.value == 0
     assert dut.rxread.value == 0
