@@ -14,9 +14,13 @@
 `timescale 1ns / 1ps
 
 module spwstream #(
-    parameter [10:0] RESET_TIME = 11'd640,
-    parameter [7:0]  DISCONNECT_TIME = 8'd85,
-    parameter [7:0]  DEFAULT_DIVCNT = 8'd4,
+    parameter integer SYS_CLOCK_HZ = 20000000,
+    parameter integer TX_CLOCK_HZ = 20000000,
+    // Optional compatibility overrides. Leave at zero to derive SpaceWire
+    // timing from SYS_CLOCK_HZ/TX_CLOCK_HZ, matching the VHDL generics.
+    parameter [10:0] RESET_TIME = 11'd0,
+    parameter [7:0]  DISCONNECT_TIME = 8'd0,
+    parameter [7:0]  DEFAULT_DIVCNT = 8'd0,
     parameter        RXIMPL = 0,
     parameter        TXIMPL = 0,
     parameter        RXCHUNK = 1,
@@ -66,6 +70,34 @@ module spwstream #(
     output wire       spw_do,
     output wire       spw_so
 );
+
+    localparam integer RESET_TIME_DERIVED = (SYS_CLOCK_HZ + 78125) / 156250;
+    localparam integer DISCONNECT_TIME_QUOT = SYS_CLOCK_HZ / 20000000;
+    localparam integer DISCONNECT_TIME_REM = SYS_CLOCK_HZ % 20000000;
+    localparam integer DISCONNECT_TIME_DERIVED =
+        (DISCONNECT_TIME_QUOT * 17) + ((DISCONNECT_TIME_REM * 17 + 10000000) / 20000000);
+    localparam [10:0] RESET_TIME_COUNT = (RESET_TIME != 0) ? RESET_TIME : RESET_TIME_DERIVED[10:0];
+    localparam [7:0] DISCONNECT_TIME_COUNT =
+        (DISCONNECT_TIME != 0) ? DISCONNECT_TIME : DISCONNECT_TIME_DERIVED[7:0];
+    localparam integer EFFECTIVE_TX_CLOCK_HZ = TXIMPL ? TX_CLOCK_HZ : SYS_CLOCK_HZ;
+    localparam integer STARTUP_DIVCNT_DERIVED = ((EFFECTIVE_TX_CLOCK_HZ + 5000000) / 10000000) - 1;
+    localparam [7:0] STARTUP_DIVCNT =
+        (DEFAULT_DIVCNT != 0) ? DEFAULT_DIVCNT : STARTUP_DIVCNT_DERIVED[7:0];
+
+    initial begin
+        if (RESET_TIME == 0 && (RESET_TIME_DERIVED < 1 || RESET_TIME_DERIVED > 2047)) begin
+            $display("spwstream: derived RESET_TIME %0d is outside 11-bit range", RESET_TIME_DERIVED);
+            $finish;
+        end
+        if (DISCONNECT_TIME == 0 && (DISCONNECT_TIME_DERIVED < 1 || DISCONNECT_TIME_DERIVED > 255)) begin
+            $display("spwstream: derived DISCONNECT_TIME %0d is outside 8-bit range", DISCONNECT_TIME_DERIVED);
+            $finish;
+        end
+        if (DEFAULT_DIVCNT == 0 && (STARTUP_DIVCNT_DERIVED < 0 || STARTUP_DIVCNT_DERIVED > 255)) begin
+            $display("spwstream: derived startup divider %0d is outside 8-bit range", STARTUP_DIVCNT_DERIVED);
+            $finish;
+        end
+    end
 
     reg rxpacket;
     reg rxeep;
@@ -164,7 +196,7 @@ module spwstream #(
     assign s_txfifo_wdata = {txflag, txdata};
 
     spwlink #(
-        .RESET_TIME(RESET_TIME)
+        .RESET_TIME(RESET_TIME_COUNT)
     ) link_inst (
         .clk(clk),
         .rst(rst),
@@ -220,7 +252,7 @@ module spwstream #(
     );
 
     spwrecv #(
-        .DISCONNECT_TIME(DISCONNECT_TIME),
+        .DISCONNECT_TIME(DISCONNECT_TIME_COUNT),
         .RXCHUNK(RXCHUNK)
     ) recv_inst (
         .clk(clk),
@@ -433,7 +465,7 @@ module spwstream #(
         if (linko_running) begin
             xmit_divcnt = txdivcnt;
         end else begin
-            xmit_divcnt = DEFAULT_DIVCNT;
+            xmit_divcnt = STARTUP_DIVCNT;
         end
 
         txrdy = !txfull;

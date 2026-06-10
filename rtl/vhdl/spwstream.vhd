@@ -10,14 +10,15 @@
 --  a transmit FIFO.
 --
 --  The SpaceWire standard requires that each transceiver use an initial
---  signalling rate of 10 Mbit/s. This implies that the system clock frequency
---  must be a multiple of 10 MHz. See the manual for further details on
---  bitrates and clocking.
+--  signalling rate of 10 Mbit/s. The nearest integer clock divider is used
+--  during startup. See the manual for further details on bitrates and
+--  clocking.
 --
 
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
+use ieee.math_real.floor;
 use work.spwpkg.all;
 
 entity spwstream is
@@ -204,7 +205,7 @@ architecture spwstream_arch of spwstream is
         (impl_generic => sysfreq, impl_fast => txclkfreq);
     constant effective_txclk_freq: real := tximpl_to_txclk_freq(tximpl);
     constant default_divcnt:    std_logic_vector(7 downto 0) :=
-        std_logic_vector(to_unsigned(integer(effective_txclk_freq / 10.0e6 - 1.0), 8));
+        std_logic_vector(to_unsigned(integer(floor((effective_txclk_freq + 5.0e6) / 10.0e6) - 1.0), 8));
 
     -- Registers.
     type regs_type is record

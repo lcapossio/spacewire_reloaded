@@ -7,9 +7,11 @@
 `timescale 1ns / 1ps
 
 module spw_axi_top_loop_tb #(
-    parameter [10:0] RESET_TIME = 11'd20,
-    parameter [7:0]  DISCONNECT_TIME = 8'd20,
-    parameter [7:0]  DEFAULT_DIVCNT = 8'd1,
+    parameter integer SYS_CLOCK_HZ = 20000000,
+    parameter integer TX_CLOCK_HZ = 50000000,
+    parameter [10:0] RESET_TIME = 11'd0,
+    parameter [7:0]  DISCONNECT_TIME = 8'd0,
+    parameter [7:0]  DEFAULT_DIVCNT = 8'd0,
     parameter        RXIMPL = 0,
     parameter        TXIMPL = 0,
     parameter        RXCHUNK = 1,
@@ -64,6 +66,8 @@ module spw_axi_top_loop_tb #(
     wire spw_si = LOOPBACK ? spw_so : spw_si_ext;
 
     spw_axi_top #(
+        .SYS_CLOCK_HZ(SYS_CLOCK_HZ),
+        .TX_CLOCK_HZ(TX_CLOCK_HZ),
         .RESET_TIME(RESET_TIME),
         .DISCONNECT_TIME(DISCONNECT_TIME),
         .DEFAULT_DIVCNT(DEFAULT_DIVCNT),

@@ -9,9 +9,13 @@
 `timescale 1ns / 1ps
 
 module spw_axi_top #(
-    parameter [10:0] RESET_TIME = 11'd640,
-    parameter [7:0]  DISCONNECT_TIME = 8'd85,
-    parameter [7:0]  DEFAULT_DIVCNT = 8'd4,
+    parameter integer SYS_CLOCK_HZ = 20000000,
+    parameter integer TX_CLOCK_HZ = 20000000,
+    // Optional compatibility overrides. Leave at zero to derive SpaceWire
+    // timing from SYS_CLOCK_HZ/TX_CLOCK_HZ, matching the VHDL top-level.
+    parameter [10:0] RESET_TIME = 11'd0,
+    parameter [7:0]  DISCONNECT_TIME = 8'd0,
+    parameter [7:0]  DEFAULT_DIVCNT = 8'd0,
     parameter        RXIMPL = 0,
     parameter        TXIMPL = 0,
     parameter        RXCHUNK = 1,
@@ -172,6 +176,8 @@ module spw_axi_top #(
     );
 
     spwstream #(
+        .SYS_CLOCK_HZ(SYS_CLOCK_HZ),
+        .TX_CLOCK_HZ(TX_CLOCK_HZ),
         .RESET_TIME(RESET_TIME),
         .DISCONNECT_TIME(DISCONNECT_TIME),
         .DEFAULT_DIVCNT(DEFAULT_DIVCNT),

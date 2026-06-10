@@ -77,6 +77,7 @@ TX_ONLY_SPWLINK_CASE_IDS = {14, 15, 21}
 # cases are valid there, but a physical loopback would also require the
 # configured RX front end to sample the generated TX bit rate.
 LOOPBACK_SWEEP_CASES = [case for case in SPWLINK_SWEEP_CASES if case["id"] not in TX_ONLY_SPWLINK_CASE_IDS]
+STARTUP_RATE_CASE_IDS = {1, 14, 20, 21}
 
 
 def sweep_env(case):
@@ -95,9 +96,8 @@ def sweep_env(case):
 
 def verilog_sweep_parameters(case):
     return {
-        "RESET_TIME": max(1, int(case["sys"] * 6.4e-6)),
-        "DISCONNECT_TIME": max(1, int(case["sys"] * 850.0e-9)),
-        "DEFAULT_DIVCNT": case["div"],
+        "SYS_CLOCK_HZ": int(case["sys"]),
+        "TX_CLOCK_HZ": int(case["tx"]),
         "RXIMPL": case["rximpl"],
         "TXIMPL": case["tximpl"],
         "RXCHUNK": case["rxchunk"],
@@ -105,6 +105,12 @@ def verilog_sweep_parameters(case):
 
 
 def verilog_tx_only_parameters(case):
+    params = verilog_sweep_parameters(case)
+    params["LOOPBACK"] = 0
+    return params
+
+
+def verilog_no_loopback_parameters(case):
     params = verilog_sweep_parameters(case)
     params["LOOPBACK"] = 0
     return params
@@ -123,6 +129,24 @@ def vhdl_sweep_generics(case):
 
 def vhdl_tx_only_generics(case):
     generics = vhdl_sweep_generics(case)
+    generics["LOOPBACK_ENABLE"] = 0
+    return generics
+
+
+def vhdl_no_loopback_generics(case):
+    generics = vhdl_sweep_generics(case)
+    generics["LOOPBACK_ENABLE"] = 0
+    return generics
+
+
+def verilog_external_line_parameters():
+    params = verilog_sweep_parameters(SPWLINK_SWEEP_CASES[0])
+    params["LOOPBACK"] = 0
+    return params
+
+
+def vhdl_external_line_generics():
+    generics = vhdl_sweep_generics(SPWLINK_SWEEP_CASES[0])
     generics["LOOPBACK_ENABLE"] = 0
     return generics
 
@@ -167,6 +191,40 @@ def test_spw_axi_top_spwlink_tx_only_verilog(case):
         build_dir=ROOT / "build" / "cocotb" / f"spw_axi_top_tx_only_verilog_{case['id']:02d}",
         parameters=verilog_tx_only_parameters(case),
         extra_env=sweep_env(case),
+        test_filter="axi_top_tx_only_case_uses_external_spacewire_line_driver",
+    )
+
+
+@pytest.mark.parametrize(
+    "case",
+    [case for case in SPWLINK_SWEEP_CASES if case["id"] in STARTUP_RATE_CASE_IDS],
+    ids=lambda case: f"spwlink{case['id']:02d}",
+)
+def test_spw_axi_top_spwlink_startup_rate_verilog(case):
+    test_dir = Path(__file__).resolve().parent
+    run_icarus(
+        top="spw_axi_top_loop_tb",
+        test_module="spw_axi_top_line_cocotb",
+        verilog_sources=[*(ROOT / path for path in VERILOG_RTL), test_dir / "spw_axi_top_loop_tb.v"],
+        test_dir=test_dir,
+        build_dir=ROOT / "build" / "cocotb" / f"spw_axi_top_startup_rate_verilog_{case['id']:02d}",
+        parameters=verilog_no_loopback_parameters(case),
+        extra_env=sweep_env(case),
+        test_filter="axi_top_startup_signals_at_10mbps_before_run",
+    )
+
+
+def test_spw_axi_top_external_line_errors_verilog():
+    test_dir = Path(__file__).resolve().parent
+    run_icarus(
+        top="spw_axi_top_loop_tb",
+        test_module="spw_axi_top_line_cocotb",
+        verilog_sources=[*(ROOT / path for path in VERILOG_RTL), test_dir / "spw_axi_top_loop_tb.v"],
+        test_dir=test_dir,
+        build_dir=ROOT / "build" / "cocotb" / "spw_axi_top_external_line_errors_verilog",
+        parameters=verilog_external_line_parameters(),
+        extra_env=sweep_env(SPWLINK_SWEEP_CASES[0]),
+        test_filter="axi_top_external_line_.*",
     )
 
 
@@ -222,4 +280,46 @@ def test_spw_axi_top_spwlink_tx_only_vhdl(case):
         build_dir=ROOT / "build" / "cocotb" / f"spw_axi_top_tx_only_vhdl_{case['id']:02d}",
         generics=vhdl_tx_only_generics(case),
         extra_env=sweep_env(case),
+        test_filter="axi_top_tx_only_case_uses_external_spacewire_line_driver",
+    )
+
+
+@pytest.mark.skipif(
+    os.environ.get("SPW_RUN_VHDL_COCOTB") != "1",
+    reason="VHDL cocotb tests are enabled by build.py test --hdl vhdl/all",
+)
+@pytest.mark.parametrize(
+    "case",
+    [case for case in SPWLINK_SWEEP_CASES if case["id"] in STARTUP_RATE_CASE_IDS],
+    ids=lambda case: f"spwlink{case['id']:02d}",
+)
+def test_spw_axi_top_spwlink_startup_rate_vhdl(case):
+    test_dir = Path(__file__).resolve().parent
+    run_ghdl(
+        top="spw_axi_top_loop_tb",
+        test_module="spw_axi_top_line_cocotb",
+        vhdl_sources=[*(ROOT / path for path in VHDL_RTL), test_dir / "spw_axi_top_loop_tb.vhd"],
+        test_dir=test_dir,
+        build_dir=ROOT / "build" / "cocotb" / f"spw_axi_top_startup_rate_vhdl_{case['id']:02d}",
+        generics=vhdl_no_loopback_generics(case),
+        extra_env=sweep_env(case),
+        test_filter="axi_top_startup_signals_at_10mbps_before_run",
+    )
+
+
+@pytest.mark.skipif(
+    os.environ.get("SPW_RUN_VHDL_COCOTB") != "1",
+    reason="VHDL cocotb tests are enabled by build.py test --hdl vhdl/all",
+)
+def test_spw_axi_top_external_line_errors_vhdl():
+    test_dir = Path(__file__).resolve().parent
+    run_ghdl(
+        top="spw_axi_top_loop_tb",
+        test_module="spw_axi_top_line_cocotb",
+        vhdl_sources=[*(ROOT / path for path in VHDL_RTL), test_dir / "spw_axi_top_loop_tb.vhd"],
+        test_dir=test_dir,
+        build_dir=ROOT / "build" / "cocotb" / "spw_axi_top_external_line_errors_vhdl",
+        generics=vhdl_external_line_generics(),
+        extra_env=sweep_env(SPWLINK_SWEEP_CASES[0]),
+        test_filter="axi_top_external_line_.*",
     )

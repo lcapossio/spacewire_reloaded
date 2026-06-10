@@ -12,9 +12,9 @@ use work.spwpkg.all;
 
 entity spw_axi_top_loop_tb is
     generic (
-        SYS_CLOCK_HZ:     integer := 10000000;
-        RX_CLOCK_HZ:      integer := 10000000;
-        TX_CLOCK_HZ:      integer := 10000000;
+        SYS_CLOCK_HZ:     integer := 20000000;
+        RX_CLOCK_HZ:      integer := 50000000;
+        TX_CLOCK_HZ:      integer := 50000000;
         RXIMPL_SELECT:    integer := 0;
         TXIMPL_SELECT:    integer := 0;
         RXCHUNK_VALUE:    integer := 1;
