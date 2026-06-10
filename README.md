@@ -104,6 +104,53 @@ The AXI-Stream data path is currently an N-Char stream:
 
 This preserves SpaceWire's explicit EOP/EEP characters and avoids hiding them inside the previous data byte.
 
+### AXI-Lite Register Map
+
+The AXI-Lite control/status block uses 32-bit little-endian registers. All registers return `OKAY` responses; unmapped locations read as zero and ignore writes. Hardware reset clears `CONTROL`, `TXDIVCNT`, TimeCode state, sticky errors, and IRQ enable state.
+
+| Offset | Name | Access | Reset | Description |
+| --- | --- | --- | --- | --- |
+| `0x00` | `CORE_ID` | RO | `0x53505752` | Core identifier, ASCII `SPWR`. |
+| `0x04` | `VERSION` | RO | `0x00010000` | Core version. |
+| `0x08` | `CONTROL` | RW | `0x00000000` | Link control bits. |
+| `0x0C` | `STATUS` | RO | live | Link, FIFO, TimeCode, and error status. |
+| `0x10` | `TXDIVCNT` | RW | `0x00000000` | Run-state transmit divider, low byte only. The transmitted bit rate is the active TX clock divided by `TXDIVCNT + 1`. Startup uses the derived 10 Mbit/s divider instead. |
+| `0x14` | `TIMECODE_TX` | WO | `0x00000000` | Write bits `[7:6]` control and `[5:0]` time. Writing bit `[31]=1` with byte lane 3 strobed emits a one-cycle TimeCode request. |
+| `0x18` | `TIMECODE_RX` | RO/W1C | `0x00000000` | Received TimeCode latch. Bit `[31]` is valid, bits `[7:6]` are control, bits `[5:0]` are time. Write `1` to bit `[31]` with byte lane 3 strobed to clear valid; a simultaneous received TimeCode remains latched. |
+| `0x1C` | `ERROR` | RO/W1C | `0x00000000` | Sticky SpaceWire error bits. Write `1` to clear selected bits; simultaneous new errors remain latched. |
+| `0x20` | `IRQ_ENABLE` | RW | `0x00000000` | Interrupt enable mask for `IRQ_STATUS`. |
+| `0x24` | `IRQ_STATUS` | RO/W1C | live | Interrupt source summary. Bits `[0]` and `[1]` clear the same sticky sources as `ERROR` and `TIMECODE_RX`; bits `[2]` through `[4]` are live level sources. |
+
+`CONTROL` bit fields:
+
+| Bits | Name | Description |
+| --- | --- | --- |
+| `[0]` | `core_rst` | Hold-style soft reset into the SpaceWire core and AXI-Stream bridges. It stays asserted until software writes this bit back to `0`. |
+| `[1]` | `autostart` | Enable automatic link start after a received NULL. |
+| `[2]` | `linkstart` | Request link start once the core reaches Ready. |
+| `[3]` | `linkdis` | Hold the link disconnected and force a running link to disconnect. |
+| `[31:4]` | reserved | Write as zero. |
+
+`STATUS` bit fields:
+
+| Bits | Name | Description |
+| --- | --- | --- |
+| `[0]` | `started` | Link state machine is in Started. |
+| `[1]` | `connecting` | Link state machine is in Connecting. |
+| `[2]` | `running` | Link is in Run. |
+| `[3]` | `txrdy` | Transmit FIFO can accept an N-Char. |
+| `[4]` | `txhalff` | Transmit FIFO is at least half full. |
+| `[5]` | `rxvalid` | Receive FIFO has an N-Char available. |
+| `[6]` | `rxhalff` | Receive FIFO is at least half full. |
+| `[7]` | `timecode_rx_valid` | A received TimeCode is latched in `TIMECODE_RX`. |
+| `[8]` | `errdisc` | Sticky disconnect error. |
+| `[9]` | `errpar` | Sticky parity error. |
+| `[10]` | `erresc` | Sticky escape-sequence error. |
+| `[11]` | `errcred` | Sticky credit error. |
+| `[31:12]` | reserved | Reads zero. |
+
+`ERROR` bit fields are `[0] errdisc`, `[1] errpar`, `[2] erresc`, and `[3] errcred`. `IRQ_STATUS` uses `[0] any sticky error`, `[1] received TimeCode valid`, `[2] RX valid`, `[3] TX ready`, and `[4] link active`, where link active is `started | connecting | running`. The `irq` output is a level signal: `irq = |(IRQ_STATUS & IRQ_ENABLE)`. Because `IRQ_STATUS[2]`, `[3]`, and `[4]` are live level sources, they deassert only when the underlying condition deasserts or their enable bits are cleared; W1C writes affect only the sticky error and TimeCode-valid sources.
+
 ## How to Use and Test
 
 The imported baseline includes RTL, benches, scripts, and CI workflows. SpaceWire Reloaded adds a Python build entry point for lint and cocotb regressions.
@@ -135,7 +182,9 @@ python -m pip install -r requirements-dev.txt
 
 The current cocotb regression runs the shared AXI tests against the Verilog AXI modules with Icarus Verilog and the VHDL AXI modules with GHDL. AXI-Lite tests use `AxiLiteMaster` for register reads, writes, byte strobes, randomized status/control access, reset recovery, independent AW/W ordering, and channel backpressure. AXI-Stream tests use `AxiStreamSource` and `AxiStreamSink` with pause generators for ready/valid backpressure. The top-level AXI regression loops the SpaceWire physical TX/RX pins back through the real `spwstream` core in both Verilog and VHDL, and covers EOP, EEP, empty packets, multiple back-to-back packets, packet-boundary stalls, reset during streaming, link disconnect/reconnect, and TimeCode transfer through AXI-Lite.
 
-The AXI top-level suite has started to mirror the old `spwlink_tb_all` configuration sweep. The cocotb sweep preserves the original clock, divider, RX implementation, RX chunk, TX implementation, and input-rate table, then runs all 23 configurations through the AXI wrapper in both Verilog and VHDL. Loopback-compatible configurations use physical SpaceWire TX/RX loopback through the real core. The high-speed transmitter-only configurations use a cocotb SpaceWire line driver that idles through startup, sends NULLs/FCTs like the original VHDL bench, and checks TX bit timing on the DUT output pins.
+For Verilog integration, set `SYS_CLOCK_HZ` to the `clk` frequency and `TX_CLOCK_HZ` to the `txclk` frequency when `TXIMPL=1`. The Verilog AXI top and `spwstream` derive the SpaceWire reset window, disconnect timeout, and startup 10 Mbit/s divider from those clock parameters. The raw `RESET_TIME`, `DISCONNECT_TIME`, and `DEFAULT_DIVCNT` parameters are compatibility overrides; leave them at zero for derived, spec-oriented timing.
+
+The AXI top-level suite has started to mirror the old `spwlink_tb_all` configuration sweep. The cocotb sweep preserves the original clock, divider, RX implementation, RX chunk, TX implementation, and input-rate table, then runs all 23 configurations through the AXI wrapper in both Verilog and VHDL. Loopback-compatible configurations use physical SpaceWire TX/RX loopback through the real core. The high-speed transmitter-only configurations use a cocotb SpaceWire line driver that idles through startup, sends NULLs/FCTs like the original VHDL bench, and checks TX bit timing on the DUT output pins. The external line-driver regression also injects disconnect, double-ESC, parity, and credit-error conditions and checks the AXI-visible sticky error bits.
 
 The cocotb suite also includes simulation-time AXI protocol checkers. AXI-Lite channels are checked for ready/valid payload stability under backpressure. AXI-Stream channels are checked for resolved `TVALID`/`TREADY`, resolved active payloads, stable payload while stalled, bounded stall and packet length, DUT-output `TVALID` clearing during reset, and the SpaceWire N-Char terminal-beat contract: `TLAST` marks EOP/EEP, terminal `TDATA` must be `0` or `1`, and terminal `TUSER[0]` must match the EEP code. These are protocol invariant checks during regression, not a replacement for a future formal proof flow.
 
