@@ -55,6 +55,9 @@ def initialize_bus_inputs(dut):
     dut.s_axis_tlast.value = 0
     dut.s_axis_tuser.value = 0
     dut.m_axis_tready.value = 0
+    if hasattr(dut, "spw_di_ext"):
+        dut.spw_di_ext.value = 0
+        dut.spw_si_ext.value = 0
 
 
 async def wait_running(axil):

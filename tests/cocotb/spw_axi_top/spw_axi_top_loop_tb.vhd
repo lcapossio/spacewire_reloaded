@@ -11,6 +11,17 @@ library work;
 use work.spwpkg.all;
 
 entity spw_axi_top_loop_tb is
+    generic (
+        SYS_CLOCK_HZ:     integer := 10000000;
+        RX_CLOCK_HZ:      integer := 10000000;
+        TX_CLOCK_HZ:      integer := 10000000;
+        RXIMPL_SELECT:    integer := 0;
+        TXIMPL_SELECT:    integer := 0;
+        RXCHUNK_VALUE:    integer := 1;
+        LOOPBACK_ENABLE:  integer := 1;
+        RXFIFOSIZE_BITS:  integer := 6;
+        TXFIFOSIZE_BITS:  integer := 4
+    );
     port (
         clk:            in  std_logic;
         rxclk:          in  std_logic;
@@ -47,24 +58,43 @@ entity spw_axi_top_loop_tb is
         m_axis_tlast:   out std_logic;
         m_axis_tuser:   out std_logic_vector(0 downto 0);
 
-        irq:            out std_logic
+        irq:            out std_logic;
+
+        spw_di_ext:     in  std_logic;
+        spw_si_ext:     in  std_logic;
+        spw_do:         out std_logic;
+        spw_so:         out std_logic
     );
 end entity spw_axi_top_loop_tb;
 
 architecture tb of spw_axi_top_loop_tb is
-    signal spw_do: std_logic;
-    signal spw_so: std_logic;
+    signal spw_di_in: std_logic;
+    signal spw_si_in: std_logic;
+    signal spw_do_int: std_logic;
+    signal spw_so_int: std_logic;
+
+    function to_impl(value: integer) return spw_implementation_type is
+    begin
+        if value = 0 then
+            return impl_generic;
+        end if;
+        return impl_fast;
+    end function;
 begin
+    spw_di_in <= spw_do_int when LOOPBACK_ENABLE /= 0 else spw_di_ext;
+    spw_si_in <= spw_so_int when LOOPBACK_ENABLE /= 0 else spw_si_ext;
+    spw_do <= spw_do_int;
+    spw_so <= spw_so_int;
 
     dut_inst: entity work.spw_axi_top
         generic map (
-            sysfreq          => 10.0e6,
-            txclkfreq        => 10.0e6,
-            rximpl           => impl_generic,
-            rxchunk          => 1,
-            tximpl           => impl_generic,
-            rxfifosize_bits  => 6,
-            txfifosize_bits  => 4,
+            sysfreq          => real(SYS_CLOCK_HZ),
+            txclkfreq        => real(TX_CLOCK_HZ),
+            rximpl           => to_impl(RXIMPL_SELECT),
+            rxchunk          => RXCHUNK_VALUE,
+            tximpl           => to_impl(TXIMPL_SELECT),
+            rxfifosize_bits  => RXFIFOSIZE_BITS,
+            txfifosize_bits  => TXFIFOSIZE_BITS,
             AXI_ADDR_WIDTH   => 8 )
         port map (
             clk            => clk,
@@ -99,9 +129,9 @@ begin
             m_axis_tlast   => m_axis_tlast,
             m_axis_tuser   => m_axis_tuser,
             irq            => irq,
-            spw_di         => spw_do,
-            spw_si         => spw_so,
-            spw_do         => spw_do,
-            spw_so         => spw_so );
+            spw_di         => spw_di_in,
+            spw_si         => spw_si_in,
+            spw_do         => spw_do_int,
+            spw_so         => spw_so_int );
 
 end architecture tb;

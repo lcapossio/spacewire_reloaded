@@ -10,6 +10,10 @@ module spw_axi_top_loop_tb #(
     parameter [10:0] RESET_TIME = 11'd20,
     parameter [7:0]  DISCONNECT_TIME = 8'd20,
     parameter [7:0]  DEFAULT_DIVCNT = 8'd1,
+    parameter        RXIMPL = 0,
+    parameter        TXIMPL = 0,
+    parameter        RXCHUNK = 1,
+    parameter        LOOPBACK = 1,
     parameter        RXFIFOSIZE_BITS = 6,
     parameter        TXFIFOSIZE_BITS = 4
 ) (
@@ -48,19 +52,24 @@ module spw_axi_top_loop_tb #(
     output wire       m_axis_tlast,
     output wire [0:0] m_axis_tuser,
 
-    output wire       irq
+    output wire       irq,
+
+    input  wire       spw_di_ext,
+    input  wire       spw_si_ext,
+    output wire       spw_do,
+    output wire       spw_so
 );
 
-    wire spw_do;
-    wire spw_so;
+    wire spw_di = LOOPBACK ? spw_do : spw_di_ext;
+    wire spw_si = LOOPBACK ? spw_so : spw_si_ext;
 
     spw_axi_top #(
         .RESET_TIME(RESET_TIME),
         .DISCONNECT_TIME(DISCONNECT_TIME),
         .DEFAULT_DIVCNT(DEFAULT_DIVCNT),
-        .RXIMPL(0),
-        .TXIMPL(0),
-        .RXCHUNK(1),
+        .RXIMPL(RXIMPL),
+        .TXIMPL(TXIMPL),
+        .RXCHUNK(RXCHUNK),
         .RXFIFOSIZE_BITS(RXFIFOSIZE_BITS),
         .TXFIFOSIZE_BITS(TXFIFOSIZE_BITS)
     ) dut_inst (
@@ -96,8 +105,8 @@ module spw_axi_top_loop_tb #(
         .m_axis_tlast(m_axis_tlast),
         .m_axis_tuser(m_axis_tuser),
         .irq(irq),
-        .spw_di(spw_do),
-        .spw_si(spw_so),
+        .spw_di(spw_di),
+        .spw_si(spw_si),
         .spw_do(spw_do),
         .spw_so(spw_so)
     );

@@ -90,6 +90,8 @@ def run_icarus(
     test_dir: Path,
     build_dir: Path,
     parameters: dict[str, str | int] | None = None,
+    extra_env: dict[str, str] | None = None,
+    test_filter: str | None = None,
 ) -> None:
     require_tool("iverilog")
     require_tool("vvp")
@@ -113,6 +115,9 @@ def run_icarus(
     env["TOPLEVEL_LANG"] = "verilog"
     env["PYGPI_PYTHON_BIN"] = sys.executable
     env["PYTHONPATH"] = str(test_dir) + os.pathsep + env.get("PYTHONPATH", "")
+    env.update(extra_env or {})
+    if test_filter is not None:
+        env["COCOTB_TEST_FILTER"] = test_filter
     results_file = build_dir / "results.xml"
     if results_file.exists():
         results_file.unlink()
@@ -134,7 +139,9 @@ def run_ghdl(
     vhdl_sources: list[Path],
     test_dir: Path,
     build_dir: Path,
-    generics: dict[str, str | int] | None = None,
+    generics: dict[str, object] | None = None,
+    extra_env: dict[str, str] | None = None,
+    test_filter: str | None = None,
 ) -> None:
     require_tool("ghdl")
     require_tool("cocotb-config")
@@ -158,6 +165,7 @@ def run_ghdl(
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(test_dir) + os.pathsep + env.get("PYTHONPATH", "")
+    env.update(extra_env or {})
     python_dir = str(Path(sys.executable).resolve().parent)
     dll_paths = [cocotb_lib_dir(), *ghdl_dll_dirs(), python_dir]
     prepend_env_path(env, dll_paths)
@@ -175,6 +183,7 @@ def run_ghdl(
             results_xml=str(results_file),
             test_args=["--std=08"],
             parameters=generics or {},
+            test_filter=test_filter,
             extra_env=env,
         )
     finally:
