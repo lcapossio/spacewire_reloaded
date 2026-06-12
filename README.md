@@ -32,7 +32,7 @@ The original SpaceWire Light source tree has been imported as a baseline. The im
 
 The intended license for this repository is LGPL. The AMBA/AXI implementation will be written for this project instead of importing GPL GRLIB-dependent source. Any imported upstream files must be reviewed before inclusion so that license provenance remains clear.
 
-This repository includes the upstream GPL and LGPL license texts. License provenance must remain explicit as the GRLIB-dependent AMBA code is replaced by new LGPL-compatible implementation work.
+This repository includes the LGPL license text for the active source tree. Historical GPL references remain only in the preserved upstream README so the removed GRLIB-dependent AMBA context stays visible without licensing the current source as GPL.
 
 ## Original Project README
 
@@ -42,7 +42,7 @@ This top-level README is intentionally new and describes the SpaceWire Reloaded 
 
 ## Imported Baseline
 
-The current tree includes the upstream SpaceWire Light RTL, benches, simulations, documentation, synthesis examples, software support files, scripts, parity material, CI workflows, and GPL/LGPL license texts.
+The current tree includes the upstream SpaceWire Light RTL, benches, simulations, documentation, synthesis examples, software support files, scripts, parity material, CI workflows, and LGPL license text.
 
 The imported GRLIB-dependent implementation files and LEON3/SPWAMBA support examples have been removed from this repository. Historical references remain in the preserved upstream README so the reason for the replacement work is still visible.
 
