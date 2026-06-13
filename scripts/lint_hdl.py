@@ -134,6 +134,7 @@ VHDL_GROUPS = [
             "rtl/vhdl/spw_axis_rx.vhd",
             "rtl/vhdl/spw_axi_lite_regs.vhd",
             "rtl/vhdl/spw_axi_top.vhd",
+            "syn/vhdl/spw_axi_synth_wrappers.vhd",
         ],
     ),
 ]
