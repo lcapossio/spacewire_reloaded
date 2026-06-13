@@ -96,6 +96,12 @@ The first LGPL AXI replacement slice is in progress:
 - `rtl/verilog/spw_axis_rx.v`: Verilog AXI-Stream RX bridge.
 - `rtl/verilog/spw_axi_top.v`: Verilog top-level wrapper used by the local cocotb/Icarus integration regression.
 
+### System Architecture
+
+[![SpaceWire Reloaded AXI system architecture](docs/architecture.svg)](docs/architecture.svg)
+
+The first AXI wrapper keeps the original `spwstream` data/control split: AXI4-Lite owns CSRs, IRQ, link control, and timecodes, while AXI-Stream carries SpaceWire N-Chars through dedicated TX and RX bridges. The diagram opens `spwstream` one level deeper to show the link controller, receiver, selectable RX/TX front ends, and RX/TX RAM-backed N-Char FIFOs.
+
 The AXI-Stream data path is currently an N-Char stream:
 
 - `tdata[7:0]` carries a data byte, EOP code, or EEP code.

@@ -1,0 +1,252 @@
+{
+  "title": "SpaceWire Reloaded AXI Top",
+  "top": "spw_axi_top",
+  "theme": "dark",
+  "legend": "compact",
+  "grid": {
+    "cell_w": 220,
+    "cell_h": 90,
+    "gutter_x": 120,
+    "gutter_y": 75,
+    "margin": 36
+  },
+  "domains": {
+    "sys": {
+      "color": "#90CAF9",
+      "border": "#1565C0"
+    },
+    "rx": {
+      "color": "#FFCC80",
+      "border": "#EF6C00"
+    },
+    "tx": {
+      "color": "#A5D6A7",
+      "border": "#2E7D32"
+    }
+  },
+  "groups": {
+    "axi_wrapper": {
+      "label": "spw_axi_top AXI wrapper"
+    },
+    "spw_core": {
+      "label": "spwstream"
+    }
+  },
+  "blocks": [
+    {
+      "id": "axi_host",
+      "label": "AXI4-Lite Host",
+      "external": true,
+      "side": "left",
+      "row": 0,
+      "col": 0
+    },
+    {
+      "id": "regs",
+      "label": "spw_axi_lite_regs",
+      "sublabel": "CSRs, IRQ, timecodes",
+      "domain": "sys",
+      "group": "axi_wrapper",
+      "row": 0,
+      "col": 1
+    },
+    {
+      "id": "irq",
+      "label": "IRQ",
+      "external": true,
+      "side": "right",
+      "row": 0,
+      "col": 6
+    },
+    {
+      "id": "tx_app",
+      "label": "TX Source",
+      "sublabel": "AXI-Stream",
+      "external": true,
+      "side": "left",
+      "row": 2,
+      "col": 0
+    },
+    {
+      "id": "axis_tx",
+      "label": "spw_axis_tx",
+      "sublabel": "AXI-Stream to N-Char",
+      "domain": "sys",
+      "group": "axi_wrapper",
+      "row": 2,
+      "col": 1
+    },
+    {
+      "id": "tx_fifo",
+      "label": "spwram",
+      "sublabel": "TX FIFO, 9-bit N-Char",
+      "domain": "sys",
+      "group": "spw_core",
+      "row": 2,
+      "col": 2
+    },
+    {
+      "id": "link",
+      "label": "spwlink",
+      "sublabel": "link state, credits, FCT",
+      "domain": "sys",
+      "group": "spw_core",
+      "row": 1.5,
+      "col": 3
+    },
+    {
+      "id": "xmit",
+      "label": "spwxmit / fast",
+      "sublabel": "serializer, txclk optional",
+      "domain": "sys",
+      "domain_b": "tx",
+      "group": "spw_core",
+      "row": 1.5,
+      "col": 4
+    },
+    {
+      "id": "spacewire",
+      "label": "SpaceWire Link",
+      "sublabel": "D/S pins",
+      "external": true,
+      "side": "right",
+      "row": 1.5,
+      "col": 6
+    },
+    {
+      "id": "recv_front",
+      "label": "spwrecvfront",
+      "sublabel": "generic / fast RX",
+      "domain": "sys",
+      "domain_b": "rx",
+      "group": "spw_core",
+      "row": 1,
+      "col": 4
+    },
+    {
+      "id": "recv",
+      "label": "spwrecv",
+      "sublabel": "decode chars, errors",
+      "domain": "sys",
+      "group": "spw_core",
+      "row": 1,
+      "col": 3
+    },
+    {
+      "id": "rx_fifo",
+      "label": "spwram",
+      "sublabel": "RX FIFO, 9-bit N-Char",
+      "domain": "sys",
+      "group": "spw_core",
+      "row": 3,
+      "col": 4
+    },
+    {
+      "id": "axis_rx",
+      "label": "spw_axis_rx",
+      "sublabel": "N-Char to AXI-Stream",
+      "domain": "sys",
+      "group": "axi_wrapper",
+      "row": 3,
+      "col": 5
+    },
+    {
+      "id": "rx_app",
+      "label": "RX Sink",
+      "sublabel": "AXI-Stream",
+      "external": true,
+      "side": "right",
+      "row": 3,
+      "col": 6
+    }
+  ],
+  "edges": [
+    {
+      "from": "axi_host",
+      "to": "regs",
+      "kind": "axi-lite",
+      "width": 32
+    },
+    {
+      "from": "regs",
+      "to": "link",
+      "kind": "generic",
+      "width": "ctrl/status"
+    },
+    {
+      "from": "regs",
+      "to": "irq",
+      "kind": "generic",
+      "width": "1"
+    },
+    {
+      "from": "tx_app",
+      "to": "axis_tx",
+      "kind": "axi-stream",
+      "width": "8b"
+    },
+    {
+      "from": "axis_tx",
+      "to": "tx_fifo",
+      "kind": "generic",
+      "width": "NChar TX"
+    },
+    {
+      "from": "tx_fifo",
+      "to": "link",
+      "kind": "generic",
+      "width": "TX FIFO"
+    },
+    {
+      "from": "link",
+      "to": "xmit",
+      "kind": "generic",
+      "width": "xmiti",
+      "label": {
+        "dx": 28
+      }
+    },
+    {
+      "from": "xmit",
+      "to": "spacewire",
+      "kind": "generic",
+      "width": "D/S out"
+    },
+    {
+      "from": "spacewire",
+      "to": "recv_front",
+      "kind": "generic",
+      "width": "D/S in"
+    },
+    {
+      "from": "recv_front",
+      "to": "recv",
+      "kind": "generic",
+      "width": "rx bits"
+    },
+    {
+      "from": "recv",
+      "to": "link",
+      "kind": "generic",
+      "width": "recvo"
+    },
+    {
+      "from": "link",
+      "to": "rx_fifo",
+      "kind": "generic",
+      "width": "RX FIFO"
+    },
+    {
+      "from": "rx_fifo",
+      "to": "axis_rx",
+      "kind": "generic",
+      "width": "NChar RX"
+    },
+    {
+      "from": "axis_rx",
+      "to": "rx_app",
+      "kind": "axi-stream",
+      "width": "8b"
+    }
+  ]
+}
