@@ -1,0 +1,3 @@
+[submodule "examples/arty_a7100t/fpgacapZero"]
+	path = examples/arty_a7100t/fpgacapZero
+	url = https://github.com/lcapossio/fpgacapZero

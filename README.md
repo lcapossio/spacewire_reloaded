@@ -16,6 +16,7 @@ The original SpaceWire Light source tree has been imported as a baseline. The im
 - [AMBA/AXI Porting Plan](#ambaaxi-porting-plan)
 - [Current AXI Work](#current-axi-work)
 - [How to Use and Test](#how-to-use-and-test)
+- [Hardware Example: Arty A7-100T Loopback](#hardware-example-arty-a7-100t-loopback)
 - [FPGA Resource Usage and Timing](#fpga-resource-usage-and-timing)
 - [Author and License](#author-and-license)
 
@@ -201,6 +202,16 @@ The AXI top-level suite has started to mirror the old `spwlink_tb_all` configura
 The cocotb suite also includes simulation-time AXI protocol checkers. AXI-Lite channels are checked for ready/valid payload stability under backpressure. AXI-Stream channels are checked for resolved `TVALID`/`TREADY`, resolved active payloads, stable payload while stalled, bounded stall and packet length, DUT-output `TVALID` clearing during reset, and the SpaceWire N-Char terminal-beat contract: `TLAST` marks EOP/EEP, terminal `TDATA` must be `0` or `1`, and terminal `TUSER[0]` must match the EEP code. These are protocol invariant checks during regression, not a replacement for a future formal proof flow.
 
 VHDL cocotb execution requires a simulator/install combination with a working GHDL cocotb VPI interface. The local runner asks `ghdl` for its VPI library directory so Windows installs with split `bin` and `lib` DLL directories can load cocotb's GHDL VPI module. The GitHub Actions cocotb workflow installs GHDL, Icarus Verilog, and `requirements-dev.txt`, then runs both `--hdl verilog` and `--hdl vhdl`.
+
+## Hardware Example: Arty A7-100T Loopback
+
+[`examples/arty_a7100t/`](examples/arty_a7100t/) is a complete hardware-validation design for the Digilent Arty A7-100T (`xc7a100tcsg324-1`). A single `spw_axi_top` link is run in loopback and verified over JTAG with [fpgacapZero](https://github.com/lcapossio/fpgacapZero) ("fcapz"), which is pulled in as a git submodule. The example ships in both Verilog and VHDL.
+
+- Loopback is internal (`spw_do/spw_so` wired to `spw_di/spw_si` inside the FPGA) or external through Pmod JA, selected by the `LOOPBACK_INTERNAL` generic/parameter.
+- A small engine (`spw_loopback_axi`) is the AXI-Lite master that brings the link up and reads back the SpaceWire `CORE_ID`, owns the N-Char AXI-Stream for a fabric self-check and a host data-mover, and presents an AXI4 register file to the fpgacapZero EJTAG-AXI bridge. Two ELAs capture the SpaceWire D/S lines and the received byte; two EIOs and the LEDs mirror link/self-check status.
+- The same cocotb test drives the engine over its AXI4 slave (exactly as fcapz does) and passes against both the Verilog (Icarus) and VHDL (GHDL) builds; the `fcapz` host script repeats the checks on real hardware.
+
+See [`examples/arty_a7100t/README.md`](examples/arty_a7100t/README.md) for the register map, build, simulation, and hardware-verification steps, plus resource/timing numbers.
 
 ## FPGA Resource Usage and Timing
 

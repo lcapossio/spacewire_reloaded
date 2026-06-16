@@ -9,3 +9,14 @@ build/
 .pytest_cache/
 __pycache__/
 results.xml
+# Vivado / FPGA build artifacts
+*.bit
+*.rpt
+*.jou
+*.log
+.Xil/
+vivado_logs/
+clockInfo.txt
+dfx_runtime.txt
+vivado.jou
+vivado.log
