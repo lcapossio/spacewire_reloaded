@@ -133,6 +133,8 @@ architecture spwrecvfront_arch of spwrecvfront_fast is
         bufdata:    std_logic_vector(memwidth-1 downto 0);
         bufwrite:   std_ulogic;
         headptr:    std_logic_vector(2 downto 0);
+        -- gray-coded copy of headptr for safe crossing to the system domain
+        headptr_gray: std_logic_vector(2 downto 0);
         -- activity detection
         bitcnt:     std_logic_vector(2 downto 0);
     end record;
@@ -165,8 +167,8 @@ architecture spwrecvfront_arch of spwrecvfront_fast is
 
     -- Signals that are re-synchronized from rxclk to system clock domain.
     type syncsys_type is record
-        headptr:    std_logic_vector(2 downto 0);   -- pointer in cyclic buffer
-        bitcnt:     std_logic_vector(2 downto 0);   -- activity detection
+        headptr_gray: std_logic_vector(2 downto 0); -- gray-coded buffer head pointer
+        bitcnt:       std_logic_vector(2 downto 0); -- activity detection
     end record;
 
     -- Registers.
@@ -218,12 +220,15 @@ begin
         port map ( clk => rxclk, rst => r.rxdis, di => '1', do => syncrx_rstn );
 
     -- Synchronize signals from rxclk domain to system clock domain.
+    -- The head pointer is gray-coded before crossing so the system clock
+    -- domain can never sample an illegal intermediate value while the pointer
+    -- increments (gray code changes only one bit per +1 step).
     syncsys_headptr0: syncdff
-        port map ( clk => clk, rst => r.rxdis, di => rrx.headptr(0), do => syncsys.headptr(0) );
+        port map ( clk => clk, rst => r.rxdis, di => rrx.headptr_gray(0), do => syncsys.headptr_gray(0) );
     syncsys_headptr1: syncdff
-        port map ( clk => clk, rst => r.rxdis, di => rrx.headptr(1), do => syncsys.headptr(1) );
+        port map ( clk => clk, rst => r.rxdis, di => rrx.headptr_gray(1), do => syncsys.headptr_gray(1) );
     syncsys_headptr2: syncdff
-        port map ( clk => clk, rst => r.rxdis, di => rrx.headptr(2), do => syncsys.headptr(2) );
+        port map ( clk => clk, rst => r.rxdis, di => rrx.headptr_gray(2), do => syncsys.headptr_gray(2) );
     syncsys_bitcnt0: syncdff
         port map ( clk => clk, rst => r.rxdis, di => rrx.bitcnt(0), do => syncsys.bitcnt(0) );
     syncsys_bitcnt1: syncdff
@@ -256,6 +261,7 @@ begin
     process  (r, rrx, rxen, syncrx_rstn, syncsys, s_bufdout, s_a_di0, s_a_si0, s_a_di1, s_a_si1)
         variable v:     regs_type;
         variable vrx:   rxregs_type;
+        variable v_headptr_bin: std_logic_vector(2 downto 0);
     begin
         v       := r;
         vrx     := rrx;
@@ -337,12 +343,23 @@ begin
             vrx.bitcnt  := "000";
         end if;
 
+        -- Gray-code the head pointer for the clock-domain crossing. Derived
+        -- from the next-state binary value so headptr_gray tracks headptr in
+        -- lockstep (gray("000") = "000", so this also holds after reset).
+        vrx.headptr_gray := vrx.headptr xor ('0' & vrx.headptr(2 downto 1));
+
         -- ---- SYSTEM CLOCK DOMAIN ----
+
+        -- Convert the synchronized gray-coded head pointer back to binary.
+        v_headptr_bin(2) := syncsys.headptr_gray(2);
+        v_headptr_bin(1) := syncsys.headptr_gray(2) xor syncsys.headptr_gray(1);
+        v_headptr_bin(0) := syncsys.headptr_gray(2) xor syncsys.headptr_gray(1) xor
+                            syncsys.headptr_gray(0);
 
         -- Compare tailptr to headptr to decide whether there is new data.
         -- If the values are equal, we are about to read a location which has
         -- not yet been written by the rxclk domain.
-        if r.tailptr = syncsys.headptr then
+        if r.tailptr = v_headptr_bin then
             -- No more data in cyclic buffer.
             v.inbvalid  := '0';
         else

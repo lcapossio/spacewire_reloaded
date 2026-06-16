@@ -17,7 +17,14 @@ module syncdff (
     output wire do
 );
 
+    // Vendor-neutral clock-domain-crossing synchronizer attributes (see
+    // syncdff.vhd for the rationale). Each tool honours what it recognises and
+    // ignores the rest: keep both flip-flops, do not merge/replicate/retime
+    // them, do not pack them into a shift register (SRL), and keep their net
+    // names so the CDC timing constraints in constraints/ can find them.
+    (* ASYNC_REG = "TRUE", syn_preserve = 1, syn_srlstyle = "registers", preserve = 1, keep = "true" *)
     reg syncdff_ff1;
+    (* ASYNC_REG = "TRUE", syn_preserve = 1, syn_srlstyle = "registers", preserve = 1, keep = "true" *)
     reg syncdff_ff2;
 
     assign do = syncdff_ff2;

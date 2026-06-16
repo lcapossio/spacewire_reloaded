@@ -57,6 +57,7 @@ module spwrecvfront_fast #(
     reg [MEMWIDTH-1:0] bufdata;
     reg       bufwrite;
     reg [2:0] headptr;
+    reg [2:0] headptr_gray;
     reg [2:0] bitcnt;
 
     reg       v_b_di0;
@@ -71,10 +72,12 @@ module spwrecvfront_fast #(
     reg [MEMWIDTH-1:0] v_bufdata;
     reg       v_bufwrite;
     reg [2:0] v_headptr;
+    reg [2:0] v_headptr_gray;
+    reg [2:0] v_headptr_bin;
     reg [2:0] v_bitcnt;
 
     wire syncrx_rstn;
-    wire [2:0] syncsys_headptr;
+    wire [2:0] syncsys_headptr_gray;
     wire [2:0] syncsys_bitcnt;
     wire [MEMWIDTH-1:0] bufdout;
 
@@ -157,10 +160,13 @@ module spwrecvfront_fast #(
         .wdata(bufdata)
     );
 
+    // The head pointer is gray-coded before crossing so the system clock
+    // domain can never sample an illegal intermediate value while the pointer
+    // increments (gray code changes only one bit per +1 step).
     syncdff syncrx_reset (.clk(rxclk), .rst(rxdis), .di(1'b1), .do(syncrx_rstn));
-    syncdff syncsys_headptr0 (.clk(clk), .rst(rxdis), .di(headptr[0]), .do(syncsys_headptr[0]));
-    syncdff syncsys_headptr1 (.clk(clk), .rst(rxdis), .di(headptr[1]), .do(syncsys_headptr[1]));
-    syncdff syncsys_headptr2 (.clk(clk), .rst(rxdis), .di(headptr[2]), .do(syncsys_headptr[2]));
+    syncdff syncsys_headptr0 (.clk(clk), .rst(rxdis), .di(headptr_gray[0]), .do(syncsys_headptr_gray[0]));
+    syncdff syncsys_headptr1 (.clk(clk), .rst(rxdis), .di(headptr_gray[1]), .do(syncsys_headptr_gray[1]));
+    syncdff syncsys_headptr2 (.clk(clk), .rst(rxdis), .di(headptr_gray[2]), .do(syncsys_headptr_gray[2]));
     syncdff syncsys_bitcnt0 (.clk(clk), .rst(rxdis), .di(bitcnt[0]), .do(syncsys_bitcnt[0]));
     syncdff syncsys_bitcnt1 (.clk(clk), .rst(rxdis), .di(bitcnt[1]), .do(syncsys_bitcnt[1]));
     syncdff syncsys_bitcnt2 (.clk(clk), .rst(rxdis), .di(bitcnt[2]), .do(syncsys_bitcnt[2]));
@@ -190,6 +196,7 @@ module spwrecvfront_fast #(
         v_bufdata = bufdata;
         v_bufwrite = bufwrite;
         v_headptr = headptr;
+        v_headptr_gray = headptr_gray;
         v_bitcnt = bitcnt;
 
         v_tailptr = tailptr;
@@ -258,7 +265,18 @@ module spwrecvfront_fast #(
             v_bitcnt = 3'b000;
         end
 
-        if (tailptr == syncsys_headptr) begin
+        // Gray-code the head pointer for the clock-domain crossing. Derived
+        // from the next-state binary value so headptr_gray tracks headptr in
+        // lockstep (gray(0) = 0, so this also holds after reset).
+        v_headptr_gray = v_headptr ^ {1'b0, v_headptr[2:1]};
+
+        // Convert the synchronized gray-coded head pointer back to binary.
+        v_headptr_bin[2] = syncsys_headptr_gray[2];
+        v_headptr_bin[1] = syncsys_headptr_gray[2] ^ syncsys_headptr_gray[1];
+        v_headptr_bin[0] = syncsys_headptr_gray[2] ^ syncsys_headptr_gray[1] ^
+                           syncsys_headptr_gray[0];
+
+        if (tailptr == v_headptr_bin) begin
             v_inbvalid_r = 1'b0;
         end else begin
             v_inbvalid_r = 1'b1;
@@ -321,6 +339,7 @@ module spwrecvfront_fast #(
         bufdata <= v_bufdata;
         bufwrite <= v_bufwrite;
         headptr <= v_headptr;
+        headptr_gray <= v_headptr_gray;
         bitcnt <= v_bitcnt;
     end
 
@@ -357,6 +376,7 @@ module spwrecvfront_fast #(
         bufdata = {MEMWIDTH{1'b0}};
         bufwrite = 1'b0;
         headptr = 3'b000;
+        headptr_gray = 3'b000;
         bitcnt = 3'b000;
         a_di0 = 1'b0;
         a_si0 = 1'b0;

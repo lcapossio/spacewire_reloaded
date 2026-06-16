@@ -22,10 +22,6 @@ entity syncdff is
         do:         out std_logic           -- output data
     );
 
-    -- Turn off register replication in XST.
-    attribute REGISTER_DUPLICATION: string;
-    attribute REGISTER_DUPLICATION of syncdff: entity is "NO";
-
 end entity syncdff;
 
 architecture syncdff_arch of syncdff is
@@ -34,20 +30,37 @@ architecture syncdff_arch of syncdff is
     signal syncdff_ff1: std_ulogic := '0';
     signal syncdff_ff2: std_ulogic := '0';
 
-    -- Turn of shift-register extraction in XST.
-    attribute SHIFT_EXTRACT: string;
-    attribute SHIFT_EXTRACT of syncdff_ff1: signal is "NO";
-    attribute SHIFT_EXTRACT of syncdff_ff2: signal is "NO";
+    -- Vendor-neutral clock-domain-crossing synchronizer attributes. Each tool
+    -- honours the attributes it recognises and ignores the rest, so the same
+    -- source builds correctly on Xilinx, Intel and Lattice flows. The intent is
+    -- identical everywhere: keep both flip-flops, do not merge, replicate or
+    -- retime them, do not pack them into a shift register (SRL), and keep their
+    -- net names so the CDC timing constraints in constraints/ can find them.
+    -- Replaces the previous Xilinx-XST-only RLOC/SHIFT_EXTRACT/KEEP set, which
+    -- was not portable (and RLOC is rejected by newer Xilinx tools).
 
-    -- Tell XST to place both flip-flops in the same slice.
-    attribute RLOC: string;
-    attribute RLOC of syncdff_ff1: signal is "X0Y0";
-    attribute RLOC of syncdff_ff2: signal is "X0Y0";
+    -- Xilinx Vivado: mark the two-stage synchronizer chain.
+    attribute ASYNC_REG: string;
+    attribute ASYNC_REG of syncdff_ff1: signal is "TRUE";
+    attribute ASYNC_REG of syncdff_ff2: signal is "TRUE";
 
-    -- Tell XST to keep the flip-flop net names to be used in timing constraints.
-    attribute KEEP: string;
-    attribute KEEP of syncdff_ff1: signal is "SOFT";
-    attribute KEEP of syncdff_ff2: signal is "SOFT";
+    -- Synopsys Synplify (Lattice, Microchip): preserve and never pack to an SRL.
+    attribute syn_preserve: boolean;
+    attribute syn_preserve of syncdff_ff1: signal is true;
+    attribute syn_preserve of syncdff_ff2: signal is true;
+    attribute syn_srlstyle: string;
+    attribute syn_srlstyle of syncdff_ff1: signal is "registers";
+    attribute syn_srlstyle of syncdff_ff2: signal is "registers";
+
+    -- Intel Quartus: keep the registers (no merge/retime/removal).
+    attribute preserve: boolean;
+    attribute preserve of syncdff_ff1: signal is true;
+    attribute preserve of syncdff_ff2: signal is true;
+
+    -- Generic / Vivado: keep the flip-flop nets for the timing constraints.
+    attribute keep: string;
+    attribute keep of syncdff_ff1: signal is "true";
+    attribute keep of syncdff_ff2: signal is "true";
 
 begin
 
