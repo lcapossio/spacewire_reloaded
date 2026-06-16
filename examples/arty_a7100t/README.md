@@ -63,7 +63,7 @@ All four lit = link up and loopback self-check passed. `btn[0]` resets the desig
 | Offset | Name | Access | Description |
 | --- | --- | --- | --- |
 | `0x00` | `EXAMPLE_ID` | RO | ASCII `SPWL` |
-| `0x04` | `EXAMPLE_VER` | RO | example version |
+| `0x04` | `EXAMPLE_VER` | RO | `0x000100xx`; low byte is an ASCII HDL fingerprint: `V` (0x56) = Verilog build, `H` (0x48) = VHDL build |
 | `0x08` | `SCRATCH` | RW | host R/W sanity word |
 | `0x0C` | `CTRL` | RW | `[0]` selftest_en (reset 1), `[1]` selftest_start, `[2]` soft_reset |
 | `0x10` | `STATUS` | RO | `[0]` link_running `[1]` busy `[2]` done `[3]` pass `[4]` tx_ready `[5]` rx_valid `[6]` bringup_done `[11:8]` spw errors |

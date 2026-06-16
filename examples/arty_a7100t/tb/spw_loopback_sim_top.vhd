@@ -95,7 +95,7 @@ begin
     u_engine: entity work.spw_loopback_axi
         generic map (
             EXAMPLE_ID    => x"5350574C",
-            EXAMPLE_VER   => x"00010000",
+            EXAMPLE_VER   => x"00010048", -- low byte 'H' = VHDL build
             LINK_TXDIVCNT => x"09",
             SELFTEST_LEN  => 16)
         port map (

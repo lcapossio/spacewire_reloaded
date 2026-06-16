@@ -201,6 +201,40 @@ architecture rtl of spw_loopback_axi is
         return v;
     end function;
 
+    -- Decode a host read. Returns 0 for any address outside the low 256 bytes
+    -- so the register map does not alias every 0x100 bytes.
+    impure function reg_read(addr: std_logic_vector(31 downto 0))
+        return std_logic_vector is
+        variable rd: std_logic_vector(31 downto 0);
+    begin
+        rd := (others => '0');
+        if unsigned(addr(31 downto 8)) = 0 then
+            case addr(7 downto 0) is
+                when x"00" => rd := EXAMPLE_ID;
+                when x"04" => rd := EXAMPLE_VER;
+                when x"08" => rd := scratch_r;
+                when x"0C" => rd := (0 => selftest_en_r, others => '0');
+                when x"10" => rd := status_word(spw_status_r, bringup_done_r,
+                                    not rxfifo_empty, not dm_tx_pending,
+                                    selftest_pass_r, selftest_done_r,
+                                    selftest_busy_r, link_running_i);
+                when x"14" => rd := spw_coreid_r;
+                when x"18" => rd := spw_status_r;
+                when x"20" =>
+                    if rxfifo_empty = '0' then
+                        rd := (31 => '1', 9 => rxfifo_dout(9),
+                               8 => rxfifo_dout(8), others => '0');
+                        rd(7 downto 0) := rxfifo_dout(7 downto 0);
+                    end if;
+                when x"24" => rd := std_logic_vector(txcount_r);
+                when x"28" => rd := std_logic_vector(rxcount_r);
+                when x"2C" => rd := std_logic_vector(errcount_r);
+                when others => null;
+            end case;
+        end if;
+        return rd;
+    end function;
+
 begin
 
     -- output assignments
@@ -487,6 +521,7 @@ begin
                         end if;
                     when W_DATA =>
                         if (s_axi_wvalid = '1') and (wready_s = '1') then
+                            if unsigned(w_addr(31 downto 8)) = 0 then
                             case w_addr(7 downto 0) is
                                 when x"08" =>
                                     if s_axi_wstrb(0) = '1' then scratch_r(7 downto 0)   <= s_axi_wdata(7 downto 0); end if;
@@ -505,6 +540,7 @@ begin
                                 when others =>
                                     null;
                             end case;
+                            end if;
                             w_addr <= std_logic_vector(unsigned(w_addr) + 4);
                             if (s_axi_wlast = '1') or (w_len = 0) then
                                 wready_s <= '0';
@@ -529,8 +565,7 @@ begin
 
     -- ================= AXI4 slave read FSM =================
     process (clk) is
-        variable off: std_logic_vector(7 downto 0);
-        variable rd:  std_logic_vector(31 downto 0);
+        variable naddr: std_logic_vector(31 downto 0);
     begin
         if rising_edge(clk) then
             if rst = '1' then
@@ -545,38 +580,14 @@ begin
                         rvalid_s <= '0';
                         rlast_s  <= '0';
                         if (s_axi_arvalid = '1') and (arready_s = '1') then
-                            off := s_axi_araddr(7 downto 0);
-                            case off is
-                                when x"00" => rd := EXAMPLE_ID;
-                                when x"04" => rd := EXAMPLE_VER;
-                                when x"08" => rd := scratch_r;
-                                when x"0C" => rd := (0 => selftest_en_r, others => '0');
-                                when x"10" => rd := status_word(spw_status_r, bringup_done_r,
-                                                    not rxfifo_empty, not dm_tx_pending,
-                                                    selftest_pass_r, selftest_done_r,
-                                                    selftest_busy_r, link_running_i);
-                                when x"14" => rd := spw_coreid_r;
-                                when x"18" => rd := spw_status_r;
-                                when x"20" =>
-                                    if rxfifo_empty = '1' then
-                                        rd := (others => '0');
-                                    else
-                                        rd := (31 => '1', 9 => rxfifo_dout(9),
-                                               8 => rxfifo_dout(8), others => '0');
-                                        rd(7 downto 0) := rxfifo_dout(7 downto 0);
-                                    end if;
-                                when x"24" => rd := std_logic_vector(txcount_r);
-                                when x"28" => rd := std_logic_vector(rxcount_r);
-                                when x"2C" => rd := std_logic_vector(errcount_r);
-                                when others => rd := (others => '0');
-                            end case;
                             r_addr    <= s_axi_araddr;
                             r_len     <= unsigned(s_axi_arlen);
                             arready_s <= '0';
-                            rdata_s   <= rd;
+                            rdata_s   <= reg_read(s_axi_araddr);
                             rvalid_s  <= '1';
                             if s_axi_arlen = x"00" then rlast_s <= '1'; else rlast_s <= '0'; end if;
-                            if (off = x"20") and (rxfifo_empty = '0') then
+                            if (unsigned(s_axi_araddr(31 downto 8)) = 0) and
+                               (s_axi_araddr(7 downto 0) = x"20") and (rxfifo_empty = '0') then
                                 rxfifo_pop <= '1';
                             end if;
                             rstate <= R_DATA;
@@ -589,36 +600,13 @@ begin
                                 arready_s <= '1';
                                 rstate    <= R_IDLE;
                             else
-                                r_addr <= std_logic_vector(unsigned(r_addr) + 4);
+                                naddr  := std_logic_vector(unsigned(r_addr) + 4);
+                                r_addr <= naddr;
                                 r_len  <= r_len - 1;
-                                off := std_logic_vector(unsigned(r_addr(7 downto 0)) + 4);
-                                case off is
-                                    when x"00" => rd := EXAMPLE_ID;
-                                    when x"04" => rd := EXAMPLE_VER;
-                                    when x"08" => rd := scratch_r;
-                                    when x"0C" => rd := (0 => selftest_en_r, others => '0');
-                                    when x"10" => rd := status_word(spw_status_r, bringup_done_r,
-                                                        not rxfifo_empty, not dm_tx_pending,
-                                                        selftest_pass_r, selftest_done_r,
-                                                        selftest_busy_r, link_running_i);
-                                    when x"14" => rd := spw_coreid_r;
-                                    when x"18" => rd := spw_status_r;
-                                    when x"20" =>
-                                        if rxfifo_empty = '1' then
-                                            rd := (others => '0');
-                                        else
-                                            rd := (31 => '1', 9 => rxfifo_dout(9),
-                                                   8 => rxfifo_dout(8), others => '0');
-                                            rd(7 downto 0) := rxfifo_dout(7 downto 0);
-                                        end if;
-                                    when x"24" => rd := std_logic_vector(txcount_r);
-                                    when x"28" => rd := std_logic_vector(rxcount_r);
-                                    when x"2C" => rd := std_logic_vector(errcount_r);
-                                    when others => rd := (others => '0');
-                                end case;
-                                rdata_s <= rd;
+                                rdata_s <= reg_read(naddr);
                                 if r_len = 1 then rlast_s <= '1'; else rlast_s <= '0'; end if;
-                                if (off = x"20") and (rxfifo_empty = '0') then
+                                if (unsigned(naddr(31 downto 8)) = 0) and
+                                   (naddr(7 downto 0) = x"20") and (rxfifo_empty = '0') then
                                     rxfifo_pop <= '1';
                                 end if;
                             end if;

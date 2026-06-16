@@ -82,7 +82,7 @@ module spw_loopback_sim_top (
     );
 
     spw_loopback_axi #(
-        .EXAMPLE_ID(32'h5350574C), .EXAMPLE_VER(32'h00010000),
+        .EXAMPLE_ID(32'h5350574C), .EXAMPLE_VER(32'h00010056), // 'V' = Verilog
         .LINK_TXDIVCNT(8'd9), .SELFTEST_LEN(8'd16)
     ) u_engine (
         .clk(clk), .rst(rst),

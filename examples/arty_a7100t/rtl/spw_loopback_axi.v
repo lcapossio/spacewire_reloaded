@@ -487,6 +487,7 @@ module spw_loopback_axi #(
                 end
                 W_DATA: begin
                     if (s_axi_wvalid && s_axi_wready) begin
+                        if (w_addr[31:8] == 24'd0)
                         case (w_addr[7:0])
                             8'h08: begin
                                 if (s_axi_wstrb[0]) scratch_r[7:0]   <= s_axi_wdata[7:0];
@@ -537,9 +538,11 @@ module spw_loopback_axi #(
     reg [7:0]  r_len;
 
     function [31:0] reg_read;
-        input [7:0] off;
+        input [31:0] addr;
         begin
-            case (off)
+            if (|addr[31:8]) reg_read = 32'd0;  // out of range: no aliasing
+            else
+            case (addr[7:0])
                 8'h00: reg_read = EXAMPLE_ID;
                 8'h04: reg_read = EXAMPLE_VER;
                 8'h08: reg_read = scratch_r;
@@ -581,12 +584,13 @@ module spw_loopback_axi #(
                         r_addr        <= s_axi_araddr;
                         r_len         <= s_axi_arlen;
                         s_axi_arready <= 1'b0;
-                        s_axi_rdata   <= reg_read(s_axi_araddr[7:0]);
+                        s_axi_rdata   <= reg_read(s_axi_araddr);
                         s_axi_rresp   <= 2'b00;
                         s_axi_rvalid  <= 1'b1;
                         s_axi_rlast   <= (s_axi_arlen == 8'd0);
                         // Pop RX FIFO once per RXDATA read that returns data.
-                        if ((s_axi_araddr[7:0] == 8'h20) && !rxfifo_empty)
+                        if ((s_axi_araddr[31:8] == 24'd0) &&
+                            (s_axi_araddr[7:0] == 8'h20) && !rxfifo_empty)
                             rxfifo_pop <= 1'b1;
                         r_state <= R_DATA;
                     end
@@ -601,9 +605,9 @@ module spw_loopback_axi #(
                         end else begin
                             r_addr      <= r_addr + 32'd4;
                             r_len       <= r_len - 8'd1;
-                            s_axi_rdata <= reg_read(r_addr[7:0] + 8'd4);
+                            s_axi_rdata <= reg_read(r_addr + 32'd4);
                             s_axi_rlast <= (r_len == 8'd1);
-                            if ((r_addr[7:0] + 8'd4) == 8'h20 && !rxfifo_empty)
+                            if (((r_addr + 32'd4) == 32'h20) && !rxfifo_empty)
                                 rxfifo_pop <= 1'b1;
                         end
                     end

@@ -98,7 +98,14 @@ def run(args) -> int:
 
     # --- identity ---
     expect(axi.axi_read(EXAMPLE_ID) == EXPECT_EXAMPLE_ID, "EXAMPLE_ID == 'SPWL'")
-    print(f"  example version: {axi.axi_read(EXAMPLE_VER):#010x}")
+    ver = axi.axi_read(EXAMPLE_VER)
+    hdl = {ord("V"): "Verilog", ord("H"): "VHDL"}.get(ver & 0xFF, "unknown")
+    print(f"  example version: {ver:#010x}  (live build = {hdl})")
+    expect((ver >> 8) == 0x000100 and (ver & 0xFF) in (ord("V"), ord("H")),
+           f"EXAMPLE_VER carries a valid HDL fingerprint ({hdl})")
+
+    # --- out-of-range decode must not alias the register map ---
+    expect(axi.axi_read(0x100) == 0x0, "unmapped 0x100 reads 0 (no 0x100 aliasing)")
 
     # --- scratch R/W ---
     axi.axi_write(SCRATCH, 0xCAFEF00D)

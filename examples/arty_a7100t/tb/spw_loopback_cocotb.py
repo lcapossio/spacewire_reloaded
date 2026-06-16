@@ -122,7 +122,10 @@ async def test_loopback_selftest(dut):
     await reset(dut)
 
     assert await axi_read(dut, EXAMPLE_ID) == 0x5350574C, "example ID mismatch"
-    assert await axi_read(dut, EXAMPLE_VER) == 0x00010000, "example version mismatch"
+    ver = await axi_read(dut, EXAMPLE_VER)
+    # low byte is an ASCII HDL fingerprint ('V'=Verilog, 'H'=VHDL)
+    assert (ver >> 8) == 0x000100, f"example version mismatch {ver:#010x}"
+    assert (ver & 0xFF) in (ord("V"), ord("H")), f"unknown HDL tag {ver:#010x}"
 
     # Scratch register R/W sanity (what a host 'probe' would do first).
     await axi_write(dut, SCRATCH, 0xDEADBEEF)
