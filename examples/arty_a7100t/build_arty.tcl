@@ -45,14 +45,38 @@ read_verilog [list \
     $example_dir/rtl/spw_loopback_axi.v \
     $example_dir/rtl/spw_arty_a7100t_top.v ]
 
-read_xdc $example_dir/arty_a7100t.xdc
+set fast 0
+if {[info exists ::env(SPW_FAST)] && $::env(SPW_FAST) eq "1"} { set fast 1 }
 
-synth_design -top spw_arty_a7100t_top -part $part -include_dirs $fcapz/rtl
+if {$fast} {
+    # Fast build: MMCM rxclk/txclk in their own domains -> exercises the
+    # gray-coded rxclk->clk and clk<->txclk crossings and constraints/spw_cdc.xdc.
+    read_xdc $example_dir/arty_a7100t_fast.xdc
+    synth_design -top spw_arty_a7100t_top -part $part -include_dirs $fcapz/rtl \
+        -generic RXIMPL=1 -generic TXIMPL=1 -generic RXCHUNK=2 -generic USE_MMCM=1
+    # Post-synthesis: the MMCM generated clocks and syncdff cells now exist.
+    set rxc [get_clocks -of_objects [get_pins -hierarchical -filter {NAME =~ *u_mmcm/CLKOUT0}]]
+    set txc [get_clocks -of_objects [get_pins -hierarchical -filter {NAME =~ *u_mmcm/CLKOUT1}]]
+    set_clock_groups -asynchronous \
+        -group [get_clocks board_clk] -group $rxc -group $txc \
+        -group [get_clocks tck_bscan]
+    read_xdc $root/constraints/spw_cdc.xdc
+    set bit  $example_dir/spw_arty_a7100t_top_fast.bit
+    set trpt $example_dir/timing_verilog_fast.rpt
+    set urpt $example_dir/utilization_verilog_fast.rpt
+} else {
+    read_xdc $example_dir/arty_a7100t.xdc
+    synth_design -top spw_arty_a7100t_top -part $part -include_dirs $fcapz/rtl
+    set bit  $example_dir/spw_arty_a7100t_top.bit
+    set trpt $example_dir/timing_verilog.rpt
+    set urpt $example_dir/utilization_verilog.rpt
+}
+
 opt_design
 place_design
 route_design
-report_timing_summary -file $example_dir/timing_verilog.rpt
-report_utilization    -file $example_dir/utilization_verilog.rpt
-write_bitstream -force $example_dir/spw_arty_a7100t_top.bit
+report_timing_summary -file $trpt
+report_utilization    -file $urpt
+write_bitstream -force $bit
 
-puts "\n=== Verilog build complete: examples/arty_a7100t/spw_arty_a7100t_top.bit ==="
+puts "\n=== Verilog build complete: $bit ==="

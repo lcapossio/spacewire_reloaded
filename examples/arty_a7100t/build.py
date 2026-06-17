@@ -18,6 +18,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -50,6 +51,9 @@ def main() -> int:
     parser.add_argument("--hdl", choices=("verilog", "vhdl"), default="verilog")
     parser.add_argument("--vivado", default=None, help="path to vivado executable")
     parser.add_argument("--log-dir", default=str(HERE / "vivado_logs"))
+    parser.add_argument("--fast", action="store_true",
+                        help="fast build: MMCM rxclk/txclk + fast RX/TX impl, applies "
+                             "constraints/spw_cdc.xdc (exercises the CDC on hardware)")
     args = parser.parse_args()
 
     if not (SUBMODULE / "rtl").is_dir():
@@ -62,17 +66,24 @@ def main() -> int:
     log_dir = Path(args.log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     tcl = TCL[args.hdl]
-    bit = BITFILE[args.hdl]
+    suffix = "_fast" if args.fast else ""
+    base = BITFILE[args.hdl].stem  # spw_arty_a7100t_top[_vhdl]
+    bit = HERE / f"{base}{suffix}.bit"
 
+    env = os.environ.copy()
+    if args.fast:
+        env["SPW_FAST"] = "1"
+
+    tag = f"{args.hdl}{suffix}"
     cmd = [
         vivado, "-mode", "batch", "-source", str(tcl),
-        "-log", str(log_dir / f"vivado_{args.hdl}.log"),
-        "-journal", str(log_dir / f"vivado_{args.hdl}.jou"),
+        "-log", str(log_dir / f"vivado_{tag}.log"),
+        "-journal", str(log_dir / f"vivado_{tag}.jou"),
     ]
     print(f"[build] vivado: {vivado}")
-    print(f"[build] hdl:    {args.hdl}")
+    print(f"[build] hdl:    {args.hdl}{'  (fast)' if args.fast else ''}")
     print(f"[build] cmd:    {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=str(ROOT), check=False)
+    result = subprocess.run(cmd, cwd=str(ROOT), env=env, check=False)
     if result.returncode != 0:
         print(f"[build] vivado failed (exit {result.returncode})", file=sys.stderr)
         return result.returncode

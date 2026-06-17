@@ -15,7 +15,14 @@ use work.spwpkg.all;
 
 entity spw_arty_a7100t_top is
     generic (
-        LOOPBACK_INTERNAL: integer := 1
+        LOOPBACK_INTERNAL: integer := 1;
+        -- RX/TX front-end: 0 = generic (single clock), 1 = fast. The fast build
+        -- uses an MMCM so rxclk/txclk run in their own domains, exercising the
+        -- gray-coded rxclk->clk and clk<->txclk crossings (and spw_cdc.xdc) on HW.
+        RXIMPL:   integer := 0;
+        TXIMPL:   integer := 0;
+        RXCHUNK:  integer := 1;
+        USE_MMCM: integer := 0
     );
     port (
         clk: in  std_logic;            -- 100 MHz board oscillator (E3)
@@ -103,6 +110,52 @@ architecture rtl of spw_arty_a7100t_top is
         );
     end component;
 
+    component MMCME2_BASE is
+        generic (
+            BANDWIDTH        : string := "OPTIMIZED";
+            CLKFBOUT_MULT_F  : real := 5.0;
+            CLKIN1_PERIOD    : real := 0.0;
+            CLKOUT0_DIVIDE_F : real := 1.0;
+            CLKOUT1_DIVIDE   : integer := 1;
+            DIVCLK_DIVIDE    : integer := 1;
+            STARTUP_WAIT     : string := "FALSE"
+        );
+        port (
+            CLKIN1   : in  std_logic;
+            CLKFBIN  : in  std_logic;
+            CLKFBOUT : out std_logic;
+            CLKFBOUTB: out std_logic;
+            CLKOUT0  : out std_logic;
+            CLKOUT0B : out std_logic;
+            CLKOUT1  : out std_logic;
+            CLKOUT1B : out std_logic;
+            CLKOUT2  : out std_logic;
+            CLKOUT2B : out std_logic;
+            CLKOUT3  : out std_logic;
+            CLKOUT3B : out std_logic;
+            CLKOUT4  : out std_logic;
+            CLKOUT5  : out std_logic;
+            CLKOUT6  : out std_logic;
+            LOCKED   : out std_logic;
+            PWRDWN   : in  std_logic;
+            RST      : in  std_logic
+        );
+    end component;
+
+    component BUFG is
+        port ( I : in std_logic; O : out std_logic );
+    end component;
+
+    function impl_of(n: integer) return spw_implementation_type is
+    begin
+        if n = 1 then return impl_fast; else return impl_generic; end if;
+    end function;
+    constant RX_IMPL_T : spw_implementation_type := impl_of(RXIMPL);
+    constant TX_IMPL_T : spw_implementation_type := impl_of(TXIMPL);
+
+    -- sample/transmit clocks
+    signal rxclk, txclk, mmcm_locked : std_logic;
+
     -- reset
     signal por_sr    : std_logic_vector(3 downto 0) := (others => '1');
     signal btn0_meta : std_logic;
@@ -152,6 +205,34 @@ architecture rtl of spw_arty_a7100t_top is
 
 begin
 
+    -- ---- sample/transmit clocks ----
+    -- Generic build: rxclk = txclk = clk. Fast build: MMCM derives 150 MHz
+    -- rxclk and 100 MHz txclk in their own domains (real SpaceWire CDCs).
+    g_mmcm: if USE_MMCM /= 0 generate
+        signal rxclk_raw, txclk_raw, clkfb, clkfb_buf : std_logic;
+    begin
+        u_mmcm: MMCME2_BASE
+            generic map (
+                BANDWIDTH => "OPTIMIZED", CLKFBOUT_MULT_F => 9.0,
+                CLKIN1_PERIOD => 10.000, CLKOUT0_DIVIDE_F => 6.0,
+                CLKOUT1_DIVIDE => 9, DIVCLK_DIVIDE => 1, STARTUP_WAIT => "FALSE")
+            port map (
+                CLKIN1 => clk, CLKFBIN => clkfb_buf, CLKFBOUT => clkfb,
+                CLKFBOUTB => open, CLKOUT0 => rxclk_raw, CLKOUT0B => open,
+                CLKOUT1 => txclk_raw, CLKOUT1B => open, CLKOUT2 => open,
+                CLKOUT2B => open, CLKOUT3 => open, CLKOUT3B => open,
+                CLKOUT4 => open, CLKOUT5 => open, CLKOUT6 => open,
+                LOCKED => mmcm_locked, PWRDWN => '0', RST => '0');
+        u_fb: BUFG port map (I => clkfb,     O => clkfb_buf);
+        u_rx: BUFG port map (I => rxclk_raw, O => rxclk);
+        u_tx: BUFG port map (I => txclk_raw, O => txclk);
+    end generate;
+    g_noclk: if USE_MMCM = 0 generate
+        rxclk       <= clk;
+        txclk       <= clk;
+        mmcm_locked <= '1';
+    end generate;
+
     -- ---- reset ----
     process (clk) is
     begin
@@ -161,7 +242,7 @@ begin
             btn0_sync <= btn0_meta;
         end if;
     end process;
-    rst <= por_sr(3) or btn0_sync;
+    rst <= por_sr(3) or btn0_sync or (not mmcm_locked);
 
     -- ---- loopback select ----
     spw_di     <= spw_do when LOOPBACK_INTERNAL /= 0 else spw_di_pin;
@@ -171,12 +252,12 @@ begin
 
     u_spw: entity work.spw_axi_top
         generic map (
-            sysfreq => 100.0e6, txclkfreq => 0.0,
-            rximpl => impl_generic, rxchunk => 1, tximpl => impl_generic,
+            sysfreq => 100.0e6, txclkfreq => 100.0e6,
+            rximpl => RX_IMPL_T, rxchunk => RXCHUNK, tximpl => TX_IMPL_T,
             rxfifosize_bits => 11, txfifosize_bits => 11,
             AXI_ADDR_WIDTH => 8, CORE_ID => x"53505752", VERSION => x"00010000")
         port map (
-            clk => clk, rxclk => clk, txclk => clk, rst => rst,
+            clk => clk, rxclk => rxclk, txclk => txclk, rst => rst,
             s_axi_awaddr => cs_awaddr, s_axi_awvalid => cs_awvalid, s_axi_awready => cs_awready,
             s_axi_wdata => cs_wdata, s_axi_wstrb => cs_wstrb, s_axi_wvalid => cs_wvalid, s_axi_wready => cs_wready,
             s_axi_bresp => cs_bresp, s_axi_bvalid => cs_bvalid, s_axi_bready => cs_bready,

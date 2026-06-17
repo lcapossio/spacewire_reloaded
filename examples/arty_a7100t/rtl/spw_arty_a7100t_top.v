@@ -26,7 +26,15 @@
 `timescale 1ns/1ps
 
 module spw_arty_a7100t_top #(
-    parameter integer LOOPBACK_INTERNAL = 1
+    parameter integer LOOPBACK_INTERNAL = 1,
+    // RX/TX front-end implementation: 0 = generic (single clock), 1 = fast.
+    // The fast build uses an MMCM to run rxclk/txclk in their own domains so
+    // the gray-coded rxclk->clk crossing and clk<->txclk crossings (and the
+    // constraints/spw_cdc.xdc) are actually exercised on hardware.
+    parameter integer RXIMPL   = 0,
+    parameter integer TXIMPL   = 0,
+    parameter integer RXCHUNK  = 1,
+    parameter integer USE_MMCM = 0   // 1 -> generate separate rxclk/txclk
 ) (
     input  wire       clk,          // 100 MHz board oscillator (E3)
     input  wire [3:0] btn,          // btn[0] = reset
@@ -38,7 +46,42 @@ module spw_arty_a7100t_top #(
     input  wire       spw_si_pin
 );
 
-    // ---- Reset: power-on pulse + synchronized btn[0] ----
+    // ---- Sample/transmit clocks ----
+    // Generic build: rxclk = txclk = clk (single 100 MHz domain).
+    // Fast build: MMCM derives rxclk (150 MHz) and txclk (100 MHz) in their own
+    // domains, so the SpaceWire CDCs are real crossings on hardware.
+    wire clk_sys = clk;
+    wire rxclk, txclk, mmcm_locked;
+
+    generate
+    if (USE_MMCM != 0) begin : g_mmcm
+        wire rxclk_raw, txclk_raw, clkfb, clkfb_buf;
+        MMCME2_BASE #(
+            .BANDWIDTH("OPTIMIZED"),
+            .CLKFBOUT_MULT_F(9.0),
+            .CLKIN1_PERIOD(10.000),
+            .CLKOUT0_DIVIDE_F(6.0),   // 900/6  = 150 MHz rxclk
+            .CLKOUT1_DIVIDE(9),       // 900/9  = 100 MHz txclk
+            .DIVCLK_DIVIDE(1),
+            .STARTUP_WAIT("FALSE")
+        ) u_mmcm (
+            .CLKIN1(clk), .CLKFBIN(clkfb_buf), .CLKFBOUT(clkfb),
+            .CLKOUT0(rxclk_raw), .CLKOUT1(txclk_raw),
+            .CLKOUT0B(), .CLKOUT1B(), .CLKOUT2(), .CLKOUT2B(),
+            .CLKOUT3(), .CLKOUT3B(), .CLKOUT4(), .CLKOUT5(), .CLKOUT6(),
+            .CLKFBOUTB(), .LOCKED(mmcm_locked), .PWRDWN(1'b0), .RST(1'b0)
+        );
+        BUFG u_fb (.I(clkfb), .O(clkfb_buf));
+        BUFG u_rx (.I(rxclk_raw), .O(rxclk));
+        BUFG u_tx (.I(txclk_raw), .O(txclk));
+    end else begin : g_noclk
+        assign rxclk = clk;
+        assign txclk = clk;
+        assign mmcm_locked = 1'b1;
+    end
+    endgenerate
+
+    // ---- Reset: power-on pulse + synchronized btn[0], held until MMCM lock ----
     reg [3:0] por_sr = 4'hF;
     always @(posedge clk) por_sr <= {por_sr[2:0], 1'b0};
 
@@ -48,7 +91,7 @@ module spw_arty_a7100t_top #(
         btn0_meta <= btn[0];
         btn0_sync <= btn0_meta;
     end
-    wire rst = por_sr[3] | btn0_sync;
+    wire rst = por_sr[3] | btn0_sync | ~mmcm_locked;
 
     // ---- SpaceWire link signals ----
     wire spw_do, spw_so, spw_di, spw_si;
@@ -88,20 +131,21 @@ module spw_arty_a7100t_top #(
     wire spw_irq;
 
     // ====================================================================
-    // SpaceWire core (generic RX/TX, single 100 MHz clock domain).
+    // SpaceWire core. Generic build: single 100 MHz domain. Fast build:
+    // rxclk/txclk in their own MMCM domains (real CDCs).
     // Default RESET_TIME/DISCONNECT_TIME/DEFAULT_DIVCNT already target 100 MHz.
     // ====================================================================
     spw_axi_top #(
-        .RXIMPL(0),
-        .TXIMPL(0),
-        .RXCHUNK(1),
+        .RXIMPL(RXIMPL),
+        .TXIMPL(TXIMPL),
+        .RXCHUNK(RXCHUNK),
         .RXFIFOSIZE_BITS(11),
         .TXFIFOSIZE_BITS(11),
         .AXI_ADDR_WIDTH(8),
         .CORE_ID(32'h53505752),  // "SPWR"
         .VERSION(32'h00010000)
     ) u_spw (
-        .clk(clk), .rxclk(clk), .txclk(clk), .rst(rst),
+        .clk(clk_sys), .rxclk(rxclk), .txclk(txclk), .rst(rst),
         .s_axi_awaddr(cs_awaddr), .s_axi_awvalid(cs_awvalid), .s_axi_awready(cs_awready),
         .s_axi_wdata(cs_wdata), .s_axi_wstrb(cs_wstrb), .s_axi_wvalid(cs_wvalid), .s_axi_wready(cs_wready),
         .s_axi_bresp(cs_bresp), .s_axi_bvalid(cs_bvalid), .s_axi_bready(cs_bready),

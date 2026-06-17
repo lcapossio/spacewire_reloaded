@@ -55,14 +55,35 @@ read_verilog [list \
     $fcapz/rtl/fcapz_ejtagaxi_xilinx7.v \
     $fcapz/rtl/fcapz_eio_xilinx7.v ]
 
-read_xdc $example_dir/arty_a7100t.xdc
+set fast 0
+if {[info exists ::env(SPW_FAST)] && $::env(SPW_FAST) eq "1"} { set fast 1 }
 
-synth_design -top spw_arty_a7100t_top -part $part -include_dirs $fcapz/rtl
+if {$fast} {
+    read_xdc $example_dir/arty_a7100t_fast.xdc
+    synth_design -top spw_arty_a7100t_top -part $part -include_dirs $fcapz/rtl \
+        -generic RXIMPL=1 -generic TXIMPL=1 -generic RXCHUNK=2 -generic USE_MMCM=1
+    set rxc [get_clocks -of_objects [get_pins -hierarchical -filter {NAME =~ *u_mmcm/CLKOUT0}]]
+    set txc [get_clocks -of_objects [get_pins -hierarchical -filter {NAME =~ *u_mmcm/CLKOUT1}]]
+    set_clock_groups -asynchronous \
+        -group [get_clocks board_clk] -group $rxc -group $txc \
+        -group [get_clocks tck_bscan]
+    read_xdc $root/constraints/spw_cdc.xdc
+    set bit  $example_dir/spw_arty_a7100t_top_vhdl_fast.bit
+    set trpt $example_dir/timing_vhdl_fast.rpt
+    set urpt $example_dir/utilization_vhdl_fast.rpt
+} else {
+    read_xdc $example_dir/arty_a7100t.xdc
+    synth_design -top spw_arty_a7100t_top -part $part -include_dirs $fcapz/rtl
+    set bit  $example_dir/spw_arty_a7100t_top_vhdl.bit
+    set trpt $example_dir/timing_vhdl.rpt
+    set urpt $example_dir/utilization_vhdl.rpt
+}
+
 opt_design
 place_design
 route_design
-report_timing_summary -file $example_dir/timing_vhdl.rpt
-report_utilization    -file $example_dir/utilization_vhdl.rpt
-write_bitstream -force $example_dir/spw_arty_a7100t_top_vhdl.bit
+report_timing_summary -file $trpt
+report_utilization    -file $urpt
+write_bitstream -force $bit
 
-puts "\n=== VHDL build complete: examples/arty_a7100t/spw_arty_a7100t_top_vhdl.bit ==="
+puts "\n=== VHDL build complete: $bit ==="

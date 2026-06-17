@@ -84,9 +84,22 @@ git submodule update --init examples/arty_a7100t/fpgacapZero
 Then build a bitstream (Vivado must be on `PATH`, or pass `--vivado`):
 
 ```sh
-python examples/arty_a7100t/build.py --hdl verilog   # spw_arty_a7100t_top.bit
-python examples/arty_a7100t/build.py --hdl vhdl      # spw_arty_a7100t_top_vhdl.bit
+python examples/arty_a7100t/build.py --hdl verilog          # spw_arty_a7100t_top.bit
+python examples/arty_a7100t/build.py --hdl vhdl             # spw_arty_a7100t_top_vhdl.bit
+python examples/arty_a7100t/build.py --hdl verilog --fast   # spw_arty_a7100t_top_fast.bit
 ```
+
+### Generic vs fast build
+
+The default build runs the generic RX/TX front ends in a single 100 MHz clock
+domain. The `--fast` build (`RXIMPL=TXIMPL=1`, `USE_MMCM=1`) uses an MMCM to run
+`rxclk` (150 MHz) and `txclk` (100 MHz) in their own domains, so the gray-coded
+`rxclk -> clk` head-pointer crossing and the `clk <-> txclk` transmit crossings
+are real clock-domain crossings on hardware. The fast build applies
+[`constraints/spw_cdc.xdc`](../../constraints/spw_cdc.xdc) (post-synthesis, plus
+asynchronous clock groups), so it is also what exercises that constraint file.
+Both builds meet timing on `xc7a100tcsg324-1` and pass the same fcapz host
+loopback test on the board.
 
 ## Simulate (no board)
 
