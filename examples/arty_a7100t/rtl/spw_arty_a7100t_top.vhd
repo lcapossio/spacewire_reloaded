@@ -198,6 +198,8 @@ architecture rtl of spw_arty_a7100t_top is
     signal rx_tuser : std_logic_vector(0 downto 0);
 
     signal link_running, selftest_pass, selftest_done, bringup_done : std_logic;
+    signal inj_freeze, inj_invert : std_logic;
+    signal spw_di_int, spw_si_int : std_logic;
 
     -- debug
     signal ela_trig_in  : std_logic_vector(1 downto 0);
@@ -249,8 +251,11 @@ begin
     rst <= por_sr(3) or btn0_sync or (not mmcm_locked);
 
     -- ---- loopback select ----
-    spw_di     <= spw_do when LOOPBACK_INTERNAL /= 0 else spw_di_pin;
-    spw_si     <= spw_so when LOOPBACK_INTERNAL /= 0 else spw_si_pin;
+    -- internal loopback with optional host-controlled error injection
+    spw_di_int <= '0' when inj_freeze = '1' else (spw_do xor inj_invert);
+    spw_si_int <= '0' when inj_freeze = '1' else spw_so;
+    spw_di     <= spw_di_int when LOOPBACK_INTERNAL /= 0 else spw_di_pin;
+    spw_si     <= spw_si_int when LOOPBACK_INTERNAL /= 0 else spw_si_pin;
     spw_do_pin <= spw_do;
     spw_so_pin <= spw_so;
 
@@ -300,7 +305,8 @@ begin
             s_axis_tdata => rx_tdata, s_axis_tvalid => rx_tvalid, s_axis_tready => rx_tready,
             s_axis_tlast => rx_tlast, s_axis_tuser => rx_tuser,
             link_running => link_running, selftest_pass => selftest_pass,
-            selftest_done => selftest_done, bringup_done => bringup_done);
+            selftest_done => selftest_done, bringup_done => bringup_done,
+            inj_freeze => inj_freeze, inj_invert => inj_invert);
 
     u_ejtagaxi: fcapz_ejtagaxi_xilinx7
         generic map (

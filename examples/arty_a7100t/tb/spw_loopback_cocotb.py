@@ -27,6 +27,17 @@ TXCOUNT     = 0x24
 RXCOUNT     = 0x28
 ERRCOUNT    = 0x2C
 PKTCOUNT    = 0x30
+ERRINJ      = 0x34
+
+# spw link-error bits within STATUS[11:8]
+ERR_DISC = 1 << 8
+ERR_PAR  = 1 << 9
+ERR_ESC  = 1 << 10
+ERR_CRED = 1 << 11
+ERR_ANY  = 0xF << 8
+
+INJ_FREEZE = 1 << 0
+INJ_INVERT = 1 << 1
 
 # STATUS bits
 ST_LINK_RUNNING  = 1 << 0
@@ -38,6 +49,7 @@ ST_BRINGUP_DONE  = 1 << 6
 # CTRL bits
 CTRL_SELFTEST_EN   = 1 << 0
 CTRL_SELFTEST_STRT = 1 << 1
+CTRL_SOFT_RESET    = 1 << 2
 CTRL_SELFTEST_LOOP = 1 << 3
 
 SELFTEST_LEN = 16
@@ -106,6 +118,15 @@ async def poll_until(dut, addr, mask, timeout=200000):
             return val
         await RisingEdge(dut.clk)
     raise TimeoutError(f"bit(s) {mask:#x} never set at {addr:#x} (last={val:#x})")
+
+
+async def poll_until_clear(dut, addr, mask, timeout=200000):
+    for _ in range(timeout):
+        val = await axi_read(dut, addr)
+        if not (val & mask):
+            return val
+        await RisingEdge(dut.clk)
+    raise TimeoutError(f"bit(s) {mask:#x} never cleared at {addr:#x} (last={val:#x})")
 
 
 async def reset(dut):
@@ -233,3 +254,40 @@ async def test_continuous_loop(dut):
     assert rxc >= pkts * (SELFTEST_LEN + 1), f"RXCOUNT={rxc} too low for {pkts} pkts"
     dut._log.info(f"continuous loop ok: {pkts} back-to-back packets, "
                   f"TX={txc} RX={rxc} ERR=0")
+
+
+@cocotb.test()
+async def test_error_injection(dut):
+    """Inject errors on the internal loopback line and check link-error detection
+    (sticky spw error bits + link drop) and recovery via soft_reset."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+    # continuous self-check so chars are flowing for the invert (parity) case
+    await axi_write(dut, CTRL, CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP)
+    await poll_until(dut, STATUS, ST_LINK_RUNNING)
+    assert not (await axi_read(dut, STATUS) & ERR_ANY), "unexpected error at start"
+
+    async def recover():
+        await axi_write(dut, ERRINJ, 0x0)
+        await axi_write(dut, CTRL,
+                        CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP | CTRL_SOFT_RESET)
+        await poll_until(dut, STATUS, ST_LINK_RUNNING)        # link back up
+        await poll_until_clear(dut, STATUS, ERR_ANY)          # sticky errors cleared
+
+    # 1) freeze the D/S line -> disconnect (errdisc) + link drop
+    await axi_write(dut, ERRINJ, INJ_FREEZE)
+    st = await poll_until(dut, STATUS, ERR_DISC)
+    assert st & ERR_DISC, f"expected errdisc, STATUS={st:#x}"
+    await poll_until_clear(dut, STATUS, ST_LINK_RUNNING)
+    dut._log.info(f"disconnect inject: STATUS={st:#010x} (errdisc), link dropped")
+    await recover()
+
+    # 2) invert the looped-back D line -> a link error + link drop
+    await axi_write(dut, ERRINJ, INJ_INVERT)
+    st = await poll_until(dut, STATUS, ERR_ANY)
+    assert st & ERR_ANY, f"expected a link error, STATUS={st:#x}"
+    await poll_until_clear(dut, STATUS, ST_LINK_RUNNING)
+    dut._log.info(f"invert inject: STATUS={st:#010x} (err bits {(st>>8)&0xF:#x}), link dropped")
+    await recover()
+
+    dut._log.info("error injection + recovery verified")

@@ -45,6 +45,7 @@ TXCOUNT     = 0x24
 RXCOUNT     = 0x28
 ERRCOUNT    = 0x2C
 PKTCOUNT    = 0x30
+ERRINJ      = 0x34
 
 ST_LINK_RUNNING  = 1 << 0
 ST_SELFTEST_BUSY = 1 << 1
@@ -52,8 +53,14 @@ ST_SELFTEST_DONE = 1 << 2
 ST_SELFTEST_PASS = 1 << 3
 ST_BRINGUP_DONE  = 1 << 6
 
+# spw link-error bits within STATUS[11:8]
+ERR_DISC, ERR_PAR, ERR_ESC, ERR_CRED = 1 << 8, 1 << 9, 1 << 10, 1 << 11
+ERR_ANY = 0xF << 8
+INJ_FREEZE, INJ_INVERT = 1 << 0, 1 << 1
+
 CTRL_SELFTEST_EN   = 1 << 0
 CTRL_SELFTEST_STRT = 1 << 1
+CTRL_SOFT_RESET    = 1 << 2
 CTRL_SELFTEST_LOOP = 1 << 3
 
 EXPECT_EXAMPLE_ID = 0x5350574C  # "SPWL"
@@ -83,6 +90,16 @@ def poll(fn, mask, tries=2000, delay=0.002):
             return val
         time.sleep(delay)
     raise CheckError(f"timeout waiting for {mask:#x} (last {val:#010x})")
+
+
+def poll_clear(fn, mask, tries=2000, delay=0.002):
+    val = 0
+    for _ in range(tries):
+        val = fn()
+        if not (val & mask):
+            return val
+        time.sleep(delay)
+    raise CheckError(f"timeout waiting for {mask:#x} to clear (last {val:#010x})")
 
 
 def make_transport(args):
@@ -225,6 +242,54 @@ def run_stress(args) -> int:
     return 0
 
 
+def run_inject(args) -> int:
+    """Inject errors on the internal loopback line and confirm the SpaceWire
+    link-error detection (sticky error bits + link drop) and recovery."""
+    from fcapz.ejtagaxi import EjtagAxiController
+
+    t = make_transport(args)
+    axi = EjtagAxiController(t, chain=4)
+    axi.connect()
+    poll(lambda: axi.axi_read(STATUS), ST_BRINGUP_DONE)
+    # continuous self-check so N-Chars flow (needed for the parity/invert case)
+    axi.axi_write(CTRL, CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP)
+    poll(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
+    expect(not (axi.axi_read(STATUS) & ERR_ANY), "link running, no errors before injection")
+
+    def recover():
+        axi.axi_write(ERRINJ, 0x0)
+        axi.axi_write(CTRL, CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP | CTRL_SOFT_RESET)
+        poll(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
+        poll_clear(lambda: axi.axi_read(STATUS), ERR_ANY)
+
+    names = {ERR_DISC: "errdisc", ERR_PAR: "errpar", ERR_ESC: "erresc", ERR_CRED: "errcred"}
+
+    def bits(st):
+        return " ".join(n for m, n in names.items() if st & m) or "none"
+
+    # 1) freeze the loopback D/S line -> disconnect
+    axi.axi_write(ERRINJ, INJ_FREEZE)
+    st = poll(lambda: axi.axi_read(STATUS), ERR_DISC)
+    poll_clear(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
+    print(f"  freeze  -> STATUS={st:#010x} errors=[{bits(st)}], link dropped")
+    expect(st & ERR_DISC, "disconnect injection sets errdisc and drops the link")
+    recover()
+    expect(True, "link recovered and sticky errors cleared after disconnect")
+
+    # 2) invert the looped-back D line -> a link error
+    axi.axi_write(ERRINJ, INJ_INVERT)
+    st = poll(lambda: axi.axi_read(STATUS), ERR_ANY)
+    poll_clear(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
+    print(f"  invert  -> STATUS={st:#010x} errors=[{bits(st)}], link dropped")
+    expect(st & ERR_ANY, "D-line corruption sets a link error and drops the link")
+    recover()
+    expect(True, "link recovered and sticky errors cleared after corruption")
+
+    axi.axi_write(CTRL, 0x0)
+    print("\nRESULT: PASS - internal-loopback error injection + recovery verified")
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -237,8 +302,13 @@ def main() -> int:
                    help="run a continuous back-to-back PRBS soak for N seconds")
     p.add_argument("--poll-interval", type=float, default=10.0,
                    help="seconds between counter polls during --stress")
+    p.add_argument("--inject", action="store_true",
+                   help="inject errors on the internal loopback line and check "
+                        "link-error detection + recovery")
     args = p.parse_args()
     try:
+        if args.inject:
+            return run_inject(args)
         return run_stress(args) if args.stress > 0 else run(args)
     except CheckError as exc:
         print(f"\nRESULT: FAIL - {exc}", file=sys.stderr)

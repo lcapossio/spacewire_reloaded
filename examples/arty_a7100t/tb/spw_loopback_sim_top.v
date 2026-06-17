@@ -44,8 +44,10 @@ module spw_loopback_sim_top (
 );
 
     wire spw_do, spw_so, spw_di, spw_si;
-    assign spw_di = spw_do;   // internal loopback
-    assign spw_si = spw_so;
+    wire inj_freeze, inj_invert;
+    // internal loopback with host-controlled error injection
+    assign spw_di = inj_freeze ? 1'b0 : (spw_do ^ inj_invert);
+    assign spw_si = inj_freeze ? 1'b0 : spw_so;
 
     wire [7:0]  cs_awaddr, cs_araddr;
     wire [31:0] cs_wdata, cs_rdata;
@@ -105,7 +107,8 @@ module spw_loopback_sim_top (
         .s_axis_tdata(rx_tdata), .s_axis_tvalid(rx_tvalid), .s_axis_tready(rx_tready),
         .s_axis_tlast(rx_tlast), .s_axis_tuser(rx_tuser),
         .link_running(link_running), .selftest_pass(selftest_pass),
-        .selftest_done(selftest_done), .bringup_done(bringup_done)
+        .selftest_done(selftest_done), .bringup_done(bringup_done),
+        .inj_freeze(inj_freeze), .inj_invert(inj_invert)
     );
 
 endmodule

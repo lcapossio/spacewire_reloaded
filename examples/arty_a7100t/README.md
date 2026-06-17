@@ -56,7 +56,7 @@ All four lit = link up and loopback self-check passed. `btn[0]` resets the desig
 | `build.py` | Vivado build launcher (`--hdl verilog|vhdl`) |
 | `build_arty.tcl` / `build_arty_vhdl.tcl` | Vivado batch scripts |
 | `arty_a7100t.cfg` | OpenOCD config for the onboard USB-JTAG |
-| `host_loopback_test.py` | fcapz host verification script (`--stress N` soak) |
+| `host_loopback_test.py` | fcapz host verification script (`--stress N` soak, `--inject` fault test) |
 | `ela_capture_demo.py` | fcapz ELA waveform capture of the live SpaceWire D/S lines |
 | `tb/` | cocotb functional sim (engine + core, internal loopback) |
 | `fpgacapZero/` | fpgacapZero debug-core RTL (git submodule) |
@@ -76,6 +76,7 @@ All four lit = link up and loopback self-check passed. `btn[0]` resets the desig
 | `0x20` | `RXDATA` | RO | data-mover pop: `[7:0]` data `[8]` tlast `[9]` tuser `[31]` valid |
 | `0x24`/`0x28`/`0x2C` | `TXCOUNT`/`RXCOUNT`/`ERRCOUNT` | RO | self-check N-Char counts and PRBS/framing mismatches |
 | `0x30` | `PKTCOUNT` | RO | self-check packets received (EOP count) |
+| `0x34` | `ERRINJ` | RW | fault injection on the internal loopback line: `[0]` freeze (force `di=si=0`, a disconnect) `[1]` invert `do` (corrupts the Data line, a parity/link error). Clear to `0` then pulse `CTRL` soft_reset to recover |
 
 ## Build
 
@@ -138,6 +139,23 @@ failing if `ERRCOUNT` is ever non-zero or traffic stalls:
 python examples/arty_a7100t/host_loopback_test.py \
     --bitfile examples/arty_a7100t/spw_arty_a7100t_top.bit --stress 180
 ```
+
+### Error injection and recovery
+
+`--inject` drives the `ERRINJ` register to corrupt the internal loopback line
+and confirms the SpaceWire link-error detection and recovery. It freezes the
+`di`/`si` lines (a disconnect, which sets the sticky `errdisc` and drops the
+link), then inverts the `do` line (a Data-line corruption, which raises a link
+error), and after each fault clears `ERRINJ` and pulses soft_reset to bring the
+link back up with the sticky error bits cleared:
+
+```sh
+python examples/arty_a7100t/host_loopback_test.py \
+    --bitfile examples/arty_a7100t/spw_arty_a7100t_top.bit --inject
+```
+
+The same sequence is covered in sim by `test_error_injection` in
+[`tb/spw_loopback_cocotb.py`](tb/spw_loopback_cocotb.py) for both languages.
 
 ### ELA waveform capture
 

@@ -48,6 +48,7 @@ end entity spw_loopback_sim_top;
 
 architecture rtl of spw_loopback_sim_top is
     signal spw_do, spw_so, spw_di, spw_si: std_logic;
+    signal inj_freeze, inj_invert: std_logic;
 
     signal cs_awaddr, cs_araddr: std_logic_vector(7 downto 0);
     signal cs_wdata, cs_rdata:   std_logic_vector(31 downto 0);
@@ -63,8 +64,9 @@ architecture rtl of spw_loopback_sim_top is
     signal rx_tuser: std_logic_vector(0 downto 0);
     signal spw_irq: std_logic;
 begin
-    spw_di <= spw_do;   -- internal loopback
-    spw_si <= spw_so;
+    -- internal loopback with host-controlled error injection
+    spw_di <= '0' when inj_freeze = '1' else (spw_do xor inj_invert);
+    spw_si <= '0' when inj_freeze = '1' else spw_so;
 
     u_spw: entity work.spw_axi_top
         generic map (
@@ -119,6 +121,7 @@ begin
             s_axis_tdata => rx_tdata, s_axis_tvalid => rx_tvalid, s_axis_tready => rx_tready,
             s_axis_tlast => rx_tlast, s_axis_tuser => rx_tuser,
             link_running => link_running, selftest_pass => selftest_pass,
-            selftest_done => selftest_done, bringup_done => bringup_done);
+            selftest_done => selftest_done, bringup_done => bringup_done,
+            inj_freeze => inj_freeze, inj_invert => inj_invert);
 
 end architecture rtl;

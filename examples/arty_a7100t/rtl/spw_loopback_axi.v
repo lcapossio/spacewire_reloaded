@@ -37,6 +37,13 @@
  *   0x28 RXCOUNT     RO  N-Chars received
  *   0x2C ERRCOUNT    RO  self-check PRBS/framing mismatches
  *   0x30 PKTCOUNT    RO  self-check packets received (EOP count)
+ *   0x34 ERRINJ      RW  internal-loopback error injection:
+ *                        [0] freeze (hold D/S static -> disconnect/errdisc)
+ *                        [1] invert (invert looped-back D -> parity/char error)
+ *
+ * spw error bits are visible in STATUS[11:8] and SPW_STATUS[11:8] (sticky). A
+ * CTRL[2] soft_reset re-runs bring-up, which first W1C-clears the sticky errors
+ * and restarts the link, so after removing an injected error the link recovers.
  *
  * The fabric self-check sends SELFTEST_PKTS back-to-back packets, each
  * SELFTEST_LEN PRBS bytes (shared 8-bit LFSR, seed 0xFF) followed by EOP, with
@@ -122,7 +129,11 @@ module spw_loopback_axi #(
     output wire        link_running,
     output wire        selftest_pass,
     output wire        selftest_done,
-    output wire        bringup_done
+    output wire        bringup_done,
+
+    // ---- Internal-loopback error injection (to the top's loopback mux) ----
+    output wire        inj_freeze,   // hold looped-back D/S static -> disconnect
+    output wire        inj_invert    // invert looped-back D -> parity/char error
 );
 
     // spw_axi_lite_regs register byte offsets (see rtl/.../spw_axi_lite_regs).
@@ -130,6 +141,7 @@ module spw_loopback_axi #(
     localparam [7:0] SPW_REG_CONTROL  = 8'h08;
     localparam [7:0] SPW_REG_STATUS   = 8'h0C;
     localparam [7:0] SPW_REG_TXDIVCNT = 8'h10;
+    localparam [7:0] SPW_REG_ERROR    = 8'h1C;  // W1C sticky link-error bits
 
     // ---- Example register file ----
     reg [31:0] scratch_r;
@@ -144,6 +156,7 @@ module spw_loopback_axi #(
     reg        selftest_done_r;
     reg        selftest_pass_r;
     reg        bringup_done_r;
+    reg [1:0]  errinj_r;          // [0]=freeze (disconnect), [1]=invert D (parity)
 
     reg        selftest_start_pulse;
     reg        soft_reset_pulse;
@@ -153,6 +166,8 @@ module spw_loopback_axi #(
     assign selftest_pass  = selftest_pass_r;
     assign selftest_done  = selftest_done_r;
     assign bringup_done   = bringup_done_r;
+    assign inj_freeze     = errinj_r[0];
+    assign inj_invert     = errinj_r[1];
 
     // ====================================================================
     // RX capture FIFO (data-mover mode): small synchronous FIFO so a slow
@@ -181,8 +196,10 @@ module spw_loopback_axi #(
 
     // ====================================================================
     // AXI-Lite master bring-up + status poll FSM.
-    // Sequence: write CONTROL (autostart|linkstart), write TXDIVCNT, read
-    // CORE_ID, then loop reading STATUS forever.
+    // Sequence: clear sticky errors (W1C REG_ERROR), write CONTROL
+    // (autostart|linkstart), write TXDIVCNT, read CORE_ID, then loop reading
+    // STATUS forever. soft_reset re-runs from the error clear, so the link
+    // recovers and the sticky error bits are cleared.
     // ====================================================================
     localparam [3:0]
         M_RST       = 4'd0,
@@ -193,8 +210,11 @@ module spw_loopback_axi #(
         M_ID_AR     = 4'd5,
         M_ID_R      = 4'd6,
         M_STAT_AR   = 4'd7,
-        M_STAT_R    = 4'd8;
+        M_STAT_R    = 4'd8,
+        M_CLR_AW    = 4'd9,
+        M_CLR_B     = 4'd10;
     reg [3:0] mstate;
+    reg       errclr_pending;   // clear sticky spw errors once after link is up
 
     always @(posedge clk) begin
         if (rst) begin
@@ -210,18 +230,30 @@ module spw_loopback_axi #(
             spw_coreid_r   <= 32'd0;
             spw_status_r   <= 32'd0;
             bringup_done_r <= 1'b0;
+            errclr_pending <= 1'b0;
         end else begin
-            if (soft_reset_pulse) begin
-                mstate         <= M_RST;
-                bringup_done_r <= 1'b0;
-            end
             case (mstate)
                 M_RST: begin
+                    errclr_pending <= 1'b1;  // clear sticky errors once link is up
                     m_axil_awaddr  <= SPW_REG_CONTROL;
                     m_axil_wdata   <= 32'h0000_0006; // autostart|linkstart
                     m_axil_awvalid <= 1'b1;
                     m_axil_wvalid  <= 1'b1;
                     mstate         <= M_CTRL_AW;
+                end
+                M_CLR_AW: begin
+                    if (m_axil_awready) m_axil_awvalid <= 1'b0;
+                    if (m_axil_wready)  m_axil_wvalid  <= 1'b0;
+                    if (!m_axil_awvalid && !m_axil_wvalid) begin
+                        m_axil_bready <= 1'b1;
+                        mstate        <= M_CLR_B;
+                    end
+                end
+                M_CLR_B: begin
+                    if (m_axil_bvalid) begin
+                        m_axil_bready <= 1'b0;
+                        mstate        <= M_STAT_AR;  // resume polling
+                    end
                 end
                 M_CTRL_AW: begin
                     if (m_axil_awready) m_axil_awvalid <= 1'b0;
@@ -281,11 +313,27 @@ module spw_loopback_axi #(
                         spw_status_r   <= m_axil_rdata;
                         m_axil_rready  <= 1'b0;
                         bringup_done_r <= 1'b1;
-                        mstate         <= M_STAT_AR; // poll again
+                        if (m_axil_rdata[2] && errclr_pending) begin
+                            // link up after (re)bring-up: W1C-clear sticky errors once
+                            errclr_pending <= 1'b0;
+                            m_axil_awaddr  <= SPW_REG_ERROR;
+                            m_axil_wdata   <= 32'h0000_000F;
+                            m_axil_awvalid <= 1'b1;
+                            m_axil_wvalid  <= 1'b1;
+                            mstate         <= M_CLR_AW;
+                        end else begin
+                            mstate <= M_STAT_AR; // poll again
+                        end
                     end
                 end
                 default: mstate <= M_RST;
             endcase
+            // soft_reset must override the case's mstate assignment, so place
+            // it after the case (last non-blocking write wins).
+            if (soft_reset_pulse) begin
+                mstate         <= M_RST;
+                bringup_done_r <= 1'b0;
+            end
         end
     end
 
@@ -520,6 +568,7 @@ module spw_loopback_axi #(
             scratch_r     <= 32'd0;
             selftest_en_r <= 1'b1;  // self-test on by default
             selftest_loop_r <= 1'b0;
+            errinj_r      <= 2'b00;
             selftest_start_pulse <= 1'b0;
             soft_reset_pulse     <= 1'b0;
             dm_tx_push    <= 1'b0;
@@ -560,6 +609,9 @@ module spw_loopback_axi #(
                             8'h1C: begin // TXDATA push (data-mover)
                                 dm_tx_beat <= s_axi_wdata[9:0];
                                 dm_tx_push <= 1'b1;
+                            end
+                            8'h34: begin // ERRINJ (internal-loopback error inject)
+                                if (s_axi_wstrb[0]) errinj_r <= s_axi_wdata[1:0];
                             end
                             default: ; // RO or unmapped: ignore
                         endcase
@@ -614,6 +666,7 @@ module spw_loopback_axi #(
                 8'h28: reg_read = rxcount_r;
                 8'h2C: reg_read = errcount_r;
                 8'h30: reg_read = rx_pkt;             // packets received (EOP count)
+                8'h34: reg_read = {30'd0, errinj_r};  // error-injection control
                 default: reg_read = 32'd0;
             endcase
         end

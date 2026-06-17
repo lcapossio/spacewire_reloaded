@@ -88,7 +88,11 @@ entity spw_loopback_axi is
         link_running:  out std_logic;
         selftest_pass: out std_logic;
         selftest_done: out std_logic;
-        bringup_done:  out std_logic
+        bringup_done:  out std_logic;
+
+        -- Internal-loopback error injection (to the top's loopback mux)
+        inj_freeze:    out std_logic;   -- hold looped-back D/S static -> disconnect
+        inj_invert:    out std_logic    -- invert looped-back D -> parity/char error
     );
 end entity spw_loopback_axi;
 
@@ -98,9 +102,10 @@ architecture rtl of spw_loopback_axi is
     constant SPW_REG_CONTROL:  std_logic_vector(7 downto 0) := x"08";
     constant SPW_REG_STATUS:   std_logic_vector(7 downto 0) := x"0C";
     constant SPW_REG_TXDIVCNT: std_logic_vector(7 downto 0) := x"10";
+    constant SPW_REG_ERROR:    std_logic_vector(7 downto 0) := x"1C";
 
     type m_state_t is (M_RST, M_CTRL_AW, M_CTRL_B, M_DIV_AW, M_DIV_B,
-                       M_ID_AR, M_ID_R, M_STAT_AR, M_STAT_R);
+                       M_ID_AR, M_ID_R, M_STAT_AR, M_STAT_R, M_CLR_AW, M_CLR_B);
     type t_state_t is (T_IDLE, T_DATA, T_EOP, T_DONE);
     type w_state_t is (W_IDLE, W_DATA, W_RESP);
     type r_state_t is (R_IDLE, R_DATA);
@@ -122,11 +127,13 @@ architecture rtl of spw_loopback_axi is
     signal spw_coreid_r: std_logic_vector(31 downto 0);
     signal spw_status_r: std_logic_vector(31 downto 0);
     signal bringup_done_r: std_logic;
+    signal errclr_pending: std_logic;   -- clear sticky spw errors once link is up
 
     -- example register file
     signal scratch_r:       std_logic_vector(31 downto 0);
     signal selftest_en_r:   std_logic;
     signal selftest_loop_r: std_logic;   -- continuous (free-running) self-check
+    signal errinj_r: std_logic_vector(1 downto 0);  -- [0]=freeze [1]=invert D
     signal selftest_start_pulse: std_logic;
     signal soft_reset_pulse: std_logic;
     signal txcount_r:  unsigned(31 downto 0);
@@ -247,6 +254,7 @@ architecture rtl of spw_loopback_axi is
                 when x"28" => rd := std_logic_vector(rxcount_r);
                 when x"2C" => rd := std_logic_vector(errcount_r);
                 when x"30" => rd := std_logic_vector(to_unsigned(rx_pkt, 32));
+                when x"34" => rd(1 downto 0) := errinj_r;
                 when others => null;
             end case;
         end if;
@@ -287,6 +295,8 @@ begin
     selftest_pass <= selftest_pass_r;
     selftest_done <= selftest_done_r;
     bringup_done  <= bringup_done_r;
+    inj_freeze    <= errinj_r(0);
+    inj_invert    <= errinj_r(1);
 
     rxfifo_empty <= '1' when rxfifo_wptr = rxfifo_rptr else '0';
     rxfifo_full  <= '1' when (rxfifo_wptr(RXFIFO_AW-1 downto 0) = rxfifo_rptr(RXFIFO_AW-1 downto 0))
@@ -304,18 +314,28 @@ begin
                 araddr_m <= (others => '0'); arvalid_m <= '0'; rready_m <= '0';
                 spw_coreid_r <= (others => '0'); spw_status_r <= (others => '0');
                 bringup_done_r <= '0';
+                errclr_pending <= '0';
             else
-                if soft_reset_pulse = '1' then
-                    mstate <= M_RST;
-                    bringup_done_r <= '0';
-                end if;
                 case mstate is
                     when M_RST =>
+                        errclr_pending <= '1';  -- clear sticky errors once link is up
                         awaddr_m  <= SPW_REG_CONTROL;
                         wdata_m   <= x"00000006"; -- autostart|linkstart
                         awvalid_m <= '1';
                         wvalid_m  <= '1';
                         mstate    <= M_CTRL_AW;
+                    when M_CLR_AW =>
+                        if m_axil_awready = '1' then awvalid_m <= '0'; end if;
+                        if m_axil_wready  = '1' then wvalid_m  <= '0'; end if;
+                        if (awvalid_m = '0') and (wvalid_m = '0') then
+                            bready_m <= '1';
+                            mstate   <= M_CLR_B;
+                        end if;
+                    when M_CLR_B =>
+                        if m_axil_bvalid = '1' then
+                            bready_m <= '0';
+                            mstate   <= M_STAT_AR;  -- resume polling
+                        end if;
                     when M_CTRL_AW =>
                         if m_axil_awready = '1' then awvalid_m <= '0'; end if;
                         if m_axil_wready  = '1' then wvalid_m  <= '0'; end if;
@@ -367,11 +387,27 @@ begin
                             spw_status_r   <= m_axil_rdata;
                             rready_m       <= '0';
                             bringup_done_r <= '1';
-                            mstate         <= M_STAT_AR;
+                            if (m_axil_rdata(2) = '1') and (errclr_pending = '1') then
+                                -- link up after (re)bring-up: W1C-clear sticky errors once
+                                errclr_pending <= '0';
+                                awaddr_m  <= SPW_REG_ERROR;
+                                wdata_m   <= x"0000000F";
+                                awvalid_m <= '1';
+                                wvalid_m  <= '1';
+                                mstate    <= M_CLR_AW;
+                            else
+                                mstate <= M_STAT_AR;
+                            end if;
                         end if;
                     when others =>
                         mstate <= M_RST;
                 end case;
+                -- soft_reset must override the case's mstate assignment, so it
+                -- comes after the case (last signal assignment wins).
+                if soft_reset_pulse = '1' then
+                    mstate <= M_RST;
+                    bringup_done_r <= '0';
+                end if;
             end if;
         end if;
     end process;
@@ -545,6 +581,7 @@ begin
                 w_addr <= (others => '0'); w_len <= (others => '0');
                 scratch_r <= (others => '0'); selftest_en_r <= '1';
                 selftest_loop_r <= '0';
+                errinj_r <= "00";
                 selftest_start_pulse <= '0'; soft_reset_pulse <= '0';
                 dm_tx_push <= '0'; dm_tx_beat <= (others => '0');
             else
@@ -580,6 +617,10 @@ begin
                                 when x"1C" =>
                                     dm_tx_beat <= s_axi_wdata(9 downto 0);
                                     dm_tx_push <= '1';
+                                when x"34" =>
+                                    if s_axi_wstrb(0) = '1' then
+                                        errinj_r <= s_axi_wdata(1 downto 0);
+                                    end if;
                                 when others =>
                                     null;
                             end case;

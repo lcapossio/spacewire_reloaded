@@ -100,8 +100,14 @@ module spw_arty_a7100t_top #(
     wire spw_do, spw_so, spw_di, spw_si;
 
     // Loopback select: internal ties do->di / so->si inside the FPGA.
-    assign spw_di     = (LOOPBACK_INTERNAL != 0) ? spw_do : spw_di_pin;
-    assign spw_si     = (LOOPBACK_INTERNAL != 0) ? spw_so : spw_si_pin;
+    // Internal loopback with optional host-controlled error injection:
+    //   inj_freeze -> hold D/S static (disconnect); inj_invert -> corrupt D.
+    assign spw_di     = (LOOPBACK_INTERNAL != 0)
+                          ? (inj_freeze ? 1'b0 : (spw_do ^ inj_invert))
+                          : spw_di_pin;
+    assign spw_si     = (LOOPBACK_INTERNAL != 0)
+                          ? (inj_freeze ? 1'b0 : spw_so)
+                          : spw_si_pin;
     assign spw_do_pin = spw_do;   // always driven so external wiring/scope works
     assign spw_so_pin = spw_so;
 
@@ -131,6 +137,7 @@ module spw_arty_a7100t_top #(
     wire [0:0]  rx_tuser;
 
     wire link_running, selftest_pass, selftest_done, bringup_done;
+    wire inj_freeze, inj_invert;
     wire spw_irq;
 
     // ====================================================================
@@ -192,7 +199,8 @@ module spw_arty_a7100t_top #(
         .s_axis_tdata(rx_tdata), .s_axis_tvalid(rx_tvalid), .s_axis_tready(rx_tready),
         .s_axis_tlast(rx_tlast), .s_axis_tuser(rx_tuser),
         .link_running(link_running), .selftest_pass(selftest_pass),
-        .selftest_done(selftest_done), .bringup_done(bringup_done)
+        .selftest_done(selftest_done), .bringup_done(bringup_done),
+        .inj_freeze(inj_freeze), .inj_invert(inj_invert)
     );
 
     // ====================================================================
