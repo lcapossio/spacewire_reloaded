@@ -108,7 +108,11 @@ def cmd_test(args: argparse.Namespace) -> None:
         require_python_package("cocotb_tools.runner")
 
     env = os.environ.copy()
-    pytest_args = [sys.executable, "-m", "pytest", "tests/cocotb"]
+    # tests/cocotb: AXI core regressions; examples/arty_a7100t/tb: the Arty
+    # loopback example functional sim (engine + core, no fpgacapZero submodule
+    # needed for simulation).
+    pytest_args = [sys.executable, "-m", "pytest",
+                   "tests/cocotb", "examples/arty_a7100t/tb"]
     if args.hdl == "verilog":
         pytest_args.extend(["-k", "verilog"])
     elif args.hdl == "vhdl":

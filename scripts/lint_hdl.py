@@ -41,6 +41,8 @@ VERILOG_SOURCES = [
     "rtl/verilog/spw_axis_rx.v",
     "rtl/verilog/spw_axi_lite_regs.v",
     "rtl/verilog/spw_axi_top.v",
+    "examples/arty_a7100t/rtl/spw_loopback_axi.v",
+    "examples/arty_a7100t/tb/spw_loopback_sim_top.v",
 ]
 
 VERILOG_RTL_SOURCES = [
@@ -58,6 +60,7 @@ VERILOG_RTL_SOURCES = [
     "rtl/verilog/spw_axis_rx.v",
     "rtl/verilog/spw_axi_lite_regs.v",
     "rtl/verilog/spw_axi_top.v",
+    "examples/arty_a7100t/rtl/spw_loopback_axi.v",
 ]
 
 
@@ -86,6 +89,7 @@ YOSYS_TOPS = [
     YosysTop("AXI stream RX bridge", "spw_axis_rx"),
     YosysTop("AXI-Lite register block", "spw_axi_lite_regs"),
     YosysTop("AXI top wrapper", "spw_axi_top"),
+    YosysTop("Arty loopback engine", "spw_loopback_axi"),
 ]
 
 VHDL_COMMON = [
@@ -135,6 +139,19 @@ VHDL_GROUPS = [
             "rtl/vhdl/spw_axi_lite_regs.vhd",
             "rtl/vhdl/spw_axi_top.vhd",
             "syn/vhdl/spw_axi_synth_wrappers.vhd",
+        ],
+    ),
+    (
+        "VHDL Arty loopback example",
+        VHDL_COMMON
+        + [
+            "rtl/vhdl/spwstream.vhd",
+            "rtl/vhdl/spw_axis_tx.vhd",
+            "rtl/vhdl/spw_axis_rx.vhd",
+            "rtl/vhdl/spw_axi_lite_regs.vhd",
+            "rtl/vhdl/spw_axi_top.vhd",
+            "examples/arty_a7100t/rtl/spw_loopback_axi.vhd",
+            "examples/arty_a7100t/tb/spw_loopback_sim_top.vhd",
         ],
     ),
 ]
