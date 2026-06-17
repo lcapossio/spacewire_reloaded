@@ -95,10 +95,13 @@ python examples/arty_a7100t/build.py --hdl verilog --fast   # spw_arty_a7100t_to
 ### Generic vs fast build
 
 The default build runs the generic RX/TX front ends in a single 100 MHz clock
-domain. The `--fast` build (`RXIMPL=TXIMPL=1`, `USE_MMCM=1`) uses an MMCM to run
-`rxclk` (150 MHz) and `txclk` (100 MHz) in their own domains, so the gray-coded
-`rxclk -> clk` head-pointer crossing and the `clk <-> txclk` transmit crossings
-are real clock-domain crossings on hardware. The fast build applies
+domain at ~10 Mbit/s (`LINK_TXDIVCNT=9`); the generic RX front end is not meant
+for high line rates. The `--fast` build (`RXIMPL=TXIMPL=1`, `USE_MMCM=1`) uses an
+MMCM to run `rxclk` (150 MHz) and `txclk` (100 MHz) in their own domains, so the
+gray-coded `rxclk -> clk` head-pointer crossing and the `clk <-> txclk` transmit
+crossings are real clock-domain crossings on hardware, and it sets
+`LINK_TXDIVCNT=0` for a **100 Mbit/s** SpaceWire link (`txclk/(LINK_TXDIVCNT+1)`,
+oversampled 3x by the 150 MHz DDR fast RX). The fast build applies
 [`constraints/spw_cdc.xdc`](../../constraints/spw_cdc.xdc) (post-synthesis, plus
 asynchronous clock groups), so it is also what exercises that constraint file.
 Both builds meet timing on `xc7a100tcsg324-1` and pass the same fcapz host

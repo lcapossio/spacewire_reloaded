@@ -11,6 +11,7 @@
 
 library ieee;
 use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
 use work.spwpkg.all;
 
 entity spw_arty_a7100t_top is
@@ -22,7 +23,10 @@ entity spw_arty_a7100t_top is
         RXIMPL:   integer := 0;
         TXIMPL:   integer := 0;
         RXCHUNK:  integer := 1;
-        USE_MMCM: integer := 0
+        USE_MMCM: integer := 0;
+        -- SpaceWire run-state TX divider: bit rate = txclk/(LINK_TXDIVCNT+1).
+        -- 9 -> ~10 Mbit/s at 100 MHz; 0 -> 100 Mbit/s (fast build).
+        LINK_TXDIVCNT: integer := 9
     );
     port (
         clk: in  std_logic;            -- 100 MHz board oscillator (E3)
@@ -273,7 +277,8 @@ begin
     u_engine: entity work.spw_loopback_axi
         generic map (
             EXAMPLE_ID => x"5350574C", EXAMPLE_VER => x"00010048", -- low byte 'H' = VHDL build
-            LINK_TXDIVCNT => x"09", SELFTEST_LEN => 16)
+            LINK_TXDIVCNT => std_logic_vector(to_unsigned(LINK_TXDIVCNT, 8)),
+            SELFTEST_LEN => 16)
         port map (
             clk => clk, rst => rst,
             s_axi_awaddr => ax_awaddr, s_axi_awlen => ax_awlen, s_axi_awsize => ax_awsize,

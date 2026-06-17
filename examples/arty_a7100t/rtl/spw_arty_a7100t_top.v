@@ -34,7 +34,10 @@ module spw_arty_a7100t_top #(
     parameter integer RXIMPL   = 0,
     parameter integer TXIMPL   = 0,
     parameter integer RXCHUNK  = 1,
-    parameter integer USE_MMCM = 0   // 1 -> generate separate rxclk/txclk
+    parameter integer USE_MMCM = 0,  // 1 -> generate separate rxclk/txclk
+    // SpaceWire run-state TX divider: bit rate = txclk/(LINK_TXDIVCNT+1).
+    // 9 -> ~10 Mbit/s at 100 MHz; 0 -> 100 Mbit/s (fast build).
+    parameter integer LINK_TXDIVCNT = 9
 ) (
     input  wire       clk,          // 100 MHz board oscillator (E3)
     input  wire [3:0] btn,          // btn[0] = reset
@@ -166,7 +169,7 @@ module spw_arty_a7100t_top #(
     spw_loopback_axi #(
         .EXAMPLE_ID(32'h5350574C),   // "SPWL"
         .EXAMPLE_VER(32'h00010056),  // low byte 'V' = Verilog build fingerprint
-        .LINK_TXDIVCNT(8'd9),
+        .LINK_TXDIVCNT(LINK_TXDIVCNT[7:0]),
         .SELFTEST_LEN(8'd16)
     ) u_engine (
         .clk(clk), .rst(rst),

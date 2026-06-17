@@ -61,7 +61,9 @@ if {[info exists ::env(SPW_FAST)] && $::env(SPW_FAST) eq "1"} { set fast 1 }
 if {$fast} {
     read_xdc $example_dir/arty_a7100t_fast.xdc
     synth_design -top spw_arty_a7100t_top -part $part -include_dirs $fcapz/rtl \
-        -generic RXIMPL=1 -generic TXIMPL=1 -generic RXCHUNK=2 -generic USE_MMCM=1
+        -generic RXIMPL=1 -generic TXIMPL=1 -generic RXCHUNK=2 -generic USE_MMCM=1 \
+        -generic LINK_TXDIVCNT=0
+
     set rxc [get_clocks -of_objects [get_pins -hierarchical -filter {NAME =~ *u_mmcm/CLKOUT0}]]
     set txc [get_clocks -of_objects [get_pins -hierarchical -filter {NAME =~ *u_mmcm/CLKOUT1}]]
     set_clock_groups -asynchronous \
