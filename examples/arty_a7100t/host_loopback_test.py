@@ -47,9 +47,14 @@ ERRCOUNT    = 0x2C
 PKTCOUNT    = 0x30
 
 ST_LINK_RUNNING  = 1 << 0
+ST_SELFTEST_BUSY = 1 << 1
 ST_SELFTEST_DONE = 1 << 2
 ST_SELFTEST_PASS = 1 << 3
 ST_BRINGUP_DONE  = 1 << 6
+
+CTRL_SELFTEST_EN   = 1 << 0
+CTRL_SELFTEST_STRT = 1 << 1
+CTRL_SELFTEST_LOOP = 1 << 3
 
 EXPECT_EXAMPLE_ID = 0x5350574C  # "SPWL"
 EXPECT_SPW_COREID = 0x53505752  # "SPWR"
@@ -167,6 +172,59 @@ def run(args) -> int:
     return 0
 
 
+def run_stress(args) -> int:
+    """Soak: free-run back-to-back PRBS packets for args.stress seconds and
+    confirm ERRCOUNT stays 0 and the counters keep advancing."""
+    from fcapz.ejtagaxi import EjtagAxiController
+
+    t = make_transport(args)
+    axi = EjtagAxiController(t, chain=4)
+    axi.connect()
+    print("connected to EJTAG-AXI bridge on USER4")
+    expect(axi.axi_read(EXAMPLE_ID) == EXPECT_EXAMPLE_ID, "EXAMPLE_ID == 'SPWL'")
+    poll(lambda: axi.axi_read(STATUS), ST_BRINGUP_DONE)
+    poll(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
+
+    # Clean restart into continuous loop mode: stop (drain), then en+loop+start.
+    axi.axi_write(CTRL, 0x0)
+    time.sleep(0.1)
+    axi.axi_write(CTRL, CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP | CTRL_SELFTEST_STRT)
+    time.sleep(0.05)
+    expect(axi.axi_read(STATUS) & ST_SELFTEST_BUSY, "continuous self-check running")
+
+    print(f"soaking back-to-back PRBS packets for {args.stress}s ...")
+    t0 = time.time()
+    last_pkts = 0
+    while time.time() - t0 < args.stress:
+        time.sleep(args.poll_interval)
+        pkts = axi.axi_read(PKTCOUNT)
+        tx = axi.axi_read(TXCOUNT)
+        rx = axi.axi_read(RXCOUNT)
+        err = axi.axi_read(ERRCOUNT)
+        el = time.time() - t0
+        rate = (tx / el / 1e6) if el > 0 else 0
+        print(f"  [{el:6.1f}s] packets={pkts:>10,}  TX={tx:>12,}  RX={rx:>12,}  "
+              f"ERR={err}  (~{rate:.2f} MChar/s)")
+        if err != 0:
+            raise CheckError(f"PRBS/framing errors during soak: ERRCOUNT={err}")
+        if pkts <= last_pkts:
+            raise CheckError(f"packet count not advancing (stalled at {pkts})")
+        last_pkts = pkts
+
+    axi.axi_write(CTRL, 0x0)  # stop
+    time.sleep(0.05)
+    pkts = axi.axi_read(PKTCOUNT)
+    tx = axi.axi_read(TXCOUNT)
+    rx = axi.axi_read(RXCOUNT)
+    err = axi.axi_read(ERRCOUNT)
+    print(f"\nsoak done: {pkts:,} back-to-back PRBS packets, "
+          f"TX={tx:,} RX={rx:,} chars, ERRCOUNT={err}")
+    expect(err == 0, "0 PRBS/framing errors over the whole soak")
+    expect(pkts > 0 and rx > 0, "traffic actually flowed")
+    print("\nRESULT: PASS - PRBS back-to-back stress verified over fcapz/JTAG")
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -175,9 +233,13 @@ def main() -> int:
     p.add_argument("--port", type=int, default=None)
     p.add_argument("--tap", default="xc7a100t.tap")
     p.add_argument("--fpga", default="xc7a100t")
+    p.add_argument("--stress", type=float, default=0.0,
+                   help="run a continuous back-to-back PRBS soak for N seconds")
+    p.add_argument("--poll-interval", type=float, default=10.0,
+                   help="seconds between counter polls during --stress")
     args = p.parse_args()
     try:
-        return run(args)
+        return run_stress(args) if args.stress > 0 else run(args)
     except CheckError as exc:
         print(f"\nRESULT: FAIL - {exc}", file=sys.stderr)
         return 1

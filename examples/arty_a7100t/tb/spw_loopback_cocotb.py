@@ -35,6 +35,11 @@ ST_SELFTEST_DONE = 1 << 2
 ST_SELFTEST_PASS = 1 << 3
 ST_BRINGUP_DONE  = 1 << 6
 
+# CTRL bits
+CTRL_SELFTEST_EN   = 1 << 0
+CTRL_SELFTEST_STRT = 1 << 1
+CTRL_SELFTEST_LOOP = 1 << 3
+
 SELFTEST_LEN = 16
 SELFTEST_PKTS = 4
 
@@ -192,3 +197,39 @@ async def test_host_data_mover(dut):
     assert got[-1] & (1 << 8), "last beat not marked tlast"
     assert (got[-1] & (1 << 9)) == 0, "EOP should have tuser=0"
     dut._log.info(f"data-mover loopback ok: {rx_data}")
+
+
+@cocotb.test()
+async def test_continuous_loop(dut):
+    """Continuous (loop) mode: free-running back-to-back PRBS, ERRCOUNT stays 0."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+
+    # Enter continuous mode before the link comes up so the first self-check run
+    # free-runs from a clean state (no mid-run restart / residual data). On
+    # hardware the host instead restarts into loop mode after the power-on
+    # one-shot run has finished and the link is idle.
+    await axi_write(dut, CTRL, CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP)
+    await poll_until(dut, STATUS, ST_LINK_RUNNING)
+
+    pkts = 0
+    for _ in range(60):
+        for _ in range(1000):
+            await RisingEdge(dut.clk)
+        pkts = await axi_read(dut, PKTCOUNT)
+        errs = await axi_read(dut, ERRCOUNT)
+        assert errs == 0, f"errors during loop run: ERRCOUNT={errs} (PKTCOUNT={pkts})"
+        if pkts >= 12:
+            break
+    else:
+        raise TimeoutError(f"loop did not advance enough (PKTCOUNT={pkts})")
+
+    # Confirm it is still busy (never 'done' in loop mode), then stop it.
+    st = await axi_read(dut, STATUS)
+    assert st & ST_SELFTEST_BUSY, f"loop should stay busy (STATUS={st:#x})"
+    await axi_write(dut, CTRL, 0x0)  # selftest_en=0 -> stop
+    txc = await axi_read(dut, TXCOUNT)
+    rxc = await axi_read(dut, RXCOUNT)
+    assert rxc >= pkts * (SELFTEST_LEN + 1), f"RXCOUNT={rxc} too low for {pkts} pkts"
+    dut._log.info(f"continuous loop ok: {pkts} back-to-back packets, "
+                  f"TX={txc} RX={rxc} ERR=0")

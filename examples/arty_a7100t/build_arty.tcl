@@ -12,6 +12,26 @@ set root        [file normalize $example_dir/../..]
 set fcapz       $example_dir/fpgacapZero
 set spw         $root/rtl/verilog
 
+# Vivado 2025.2 can leave the per-user Tcl store support package outside the
+# startup auto_path (tclapp::load_apps "Could not open ..." errors). Add the
+# nested support paths when they already exist; no-op on clean installations.
+if {[info exists ::env(APPDATA)]} {
+    regsub -all {\\} $::env(APPDATA) {/} appdata_dir
+    set xilinx_tcl_store [file join $appdata_dir Xilinx Vivado [version -short] XilinxTclStore]
+    foreach support_dir [list \
+        [file join $xilinx_tcl_store support] \
+        [file join $xilinx_tcl_store support appinit] \
+        [file join $xilinx_tcl_store support args] \
+        [file join $xilinx_tcl_store tclapp] \
+        [file join $xilinx_tcl_store tclapp xilinx] \
+        [file join $xilinx_tcl_store tclapp xilinx xsim] \
+    ] {
+        if {[file isdirectory $support_dir] && [lsearch -exact $::auto_path $support_dir] < 0} {
+            lappend ::auto_path $support_dir
+        }
+    }
+}
+
 read_verilog [list \
     $fcapz/rtl/reset_sync.v \
     $fcapz/rtl/dpram.v \

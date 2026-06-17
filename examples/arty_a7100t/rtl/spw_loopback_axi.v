@@ -23,6 +23,7 @@
  *   0x0C CTRL        RW  [0] selftest_en (reset 1)
  *                        [1] selftest_start (write-1 pulse, restart self-check)
  *                        [2] soft_reset    (write-1 pulse, restart bring-up)
+ *                        [3] selftest_loop (continuous free-running self-check)
  *   0x10 STATUS      RO  [0] link_running   [1] selftest_busy
  *                        [2] selftest_done  [3] selftest_pass
  *                        [4] tx_ready       [5] rx_valid
@@ -40,7 +41,9 @@
  * The fabric self-check sends SELFTEST_PKTS back-to-back packets, each
  * SELFTEST_LEN PRBS bytes (shared 8-bit LFSR, seed 0xFF) followed by EOP, with
  * the PRBS sequence continuing across packets so any dropped or duplicated char
- * desyncs the RX checker and is counted in ERRCOUNT.
+ * desyncs the RX checker and is counted in ERRCOUNT. With CTRL[3] (selftest_loop)
+ * set the run never ends: packets stream back-to-back at link rate indefinitely
+ * and TXCOUNT/RXCOUNT/ERRCOUNT/PKTCOUNT accumulate, for multi-minute soak tests.
  */
 
 `timescale 1ns/1ps
@@ -131,6 +134,7 @@ module spw_loopback_axi #(
     // ---- Example register file ----
     reg [31:0] scratch_r;
     reg        selftest_en_r;
+    reg        selftest_loop_r;   // continuous (free-running) self-check
     reg [31:0] spw_coreid_r;
     reg [31:0] spw_status_r;
     reg [31:0] txcount_r;
@@ -301,8 +305,8 @@ module spw_loopback_axi #(
     reg        check_active;
     reg [7:0]  tx_lfsr;       // PRBS generator (TX) - same sequence as rx_lfsr
     reg [7:0]  rx_lfsr;       // PRBS checker (RX)
-    reg [15:0] tx_pkt;        // packets transmitted this run
-    reg [15:0] rx_pkt;        // packets received this run (EOP count)
+    reg [31:0] tx_pkt;        // packets transmitted this run (free-running in loop mode)
+    reg [31:0] rx_pkt;        // packets received this run (EOP count)
     localparam [7:0] PRBS_SEED = 8'hFF;
     localparam [7:0] PRBS_POLY = 8'hB8; // maximal 8-bit Galois LFSR (period 255)
 
@@ -322,8 +326,8 @@ module spw_loopback_axi #(
             check_active    <= 1'b0;
             tx_lfsr         <= PRBS_SEED;
             rx_lfsr         <= PRBS_SEED;
-            tx_pkt          <= 16'd0;
-            rx_pkt          <= 16'd0;
+            tx_pkt          <= 32'd0;
+            rx_pkt          <= 32'd0;
             selftest_busy_r <= 1'b0;
             selftest_done_r <= 1'b0;
             selftest_pass_r <= 1'b0;
@@ -352,8 +356,8 @@ module spw_loopback_axi #(
                             (selftest_start_pulse || !selftest_done_r)) begin
                             tx_idx          <= 8'd0;
                             exp_idx         <= 8'd0;
-                            tx_pkt          <= 16'd0;
-                            rx_pkt          <= 16'd0;
+                            tx_pkt          <= 32'd0;
+                            rx_pkt          <= 32'd0;
                             tx_lfsr         <= PRBS_SEED;
                             rx_lfsr         <= PRBS_SEED;
                             errcount_r      <= 32'd0;
@@ -391,9 +395,10 @@ module spw_loopback_axi #(
                     T_EOP: begin
                         // EOP presented; on accept start the next packet
                         // back-to-back (PRBS continues across packets) or finish.
+                        // In loop mode the run never ends until selftest_en clears.
                         if (m_axis_tvalid && m_axis_tready) begin
                             txcount_r <= txcount_r + 1'b1;
-                            if (tx_pkt == (SELFTEST_PKTS - 1)) begin
+                            if (!selftest_loop_r && (tx_pkt == (SELFTEST_PKTS - 1))) begin
                                 m_axis_tvalid <= 1'b0;
                                 m_axis_tlast  <= 1'b0;
                                 tstate        <= T_DONE;
@@ -425,7 +430,9 @@ module spw_loopback_axi #(
                             errcount_r <= errcount_r + 1'b1;
                         exp_idx <= 8'd0;
                         rx_pkt  <= rx_pkt + 1'b1;
-                        if (rx_pkt == (SELFTEST_PKTS - 1)) begin
+                        // In loop mode never finish: keep checking and accumulating
+                        // ERRCOUNT until the host clears selftest_en.
+                        if (!selftest_loop_r && (rx_pkt == (SELFTEST_PKTS - 1))) begin
                             check_active    <= 1'b0;
                             selftest_busy_r <= 1'b0;
                             selftest_done_r <= 1'b1;
@@ -512,6 +519,7 @@ module spw_loopback_axi #(
             w_len         <= 8'd0;
             scratch_r     <= 32'd0;
             selftest_en_r <= 1'b1;  // self-test on by default
+            selftest_loop_r <= 1'b0;
             selftest_start_pulse <= 1'b0;
             soft_reset_pulse     <= 1'b0;
             dm_tx_push    <= 1'b0;
@@ -546,6 +554,7 @@ module spw_loopback_axi #(
                                     selftest_en_r        <= s_axi_wdata[0];
                                     selftest_start_pulse <= s_axi_wdata[1];
                                     soft_reset_pulse     <= s_axi_wdata[2];
+                                    selftest_loop_r      <= s_axi_wdata[3];
                                 end
                             end
                             8'h1C: begin // TXDATA push (data-mover)
@@ -592,7 +601,7 @@ module spw_loopback_axi #(
                 8'h00: reg_read = EXAMPLE_ID;
                 8'h04: reg_read = EXAMPLE_VER;
                 8'h08: reg_read = scratch_r;
-                8'h0C: reg_read = {31'd0, selftest_en_r};
+                8'h0C: reg_read = {28'd0, selftest_loop_r, 2'b0, selftest_en_r};
                 8'h10: reg_read = {20'd0, spw_status_r[11:8], 1'b0,
                                    bringup_done_r, ~rxfifo_empty, ~dm_tx_pending,
                                    selftest_pass_r, selftest_done_r,
@@ -604,7 +613,7 @@ module spw_loopback_axi #(
                 8'h24: reg_read = txcount_r;
                 8'h28: reg_read = rxcount_r;
                 8'h2C: reg_read = errcount_r;
-                8'h30: reg_read = {16'd0, rx_pkt};   // packets received (EOP count)
+                8'h30: reg_read = rx_pkt;             // packets received (EOP count)
                 default: reg_read = 32'd0;
             endcase
         end

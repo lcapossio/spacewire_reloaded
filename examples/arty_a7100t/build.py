@@ -74,6 +74,11 @@ def main() -> int:
     if args.fast:
         env["SPW_FAST"] = "1"
 
+    # Remove a stale bitstream so a failed Vivado run can't masquerade as success
+    # (the bit-exists check below would otherwise pass on the previous build).
+    if bit.exists():
+        bit.unlink()
+
     tag = f"{args.hdl}{suffix}"
     cmd = [
         vivado, "-mode", "batch", "-source", str(tcl),

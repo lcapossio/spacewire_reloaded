@@ -126,6 +126,7 @@ architecture rtl of spw_loopback_axi is
     -- example register file
     signal scratch_r:       std_logic_vector(31 downto 0);
     signal selftest_en_r:   std_logic;
+    signal selftest_loop_r: std_logic;   -- continuous (free-running) self-check
     signal selftest_start_pulse: std_logic;
     signal soft_reset_pulse: std_logic;
     signal txcount_r:  unsigned(31 downto 0);
@@ -141,8 +142,8 @@ architecture rtl of spw_loopback_axi is
     signal check_active: std_logic;
     signal tx_lfsr: std_logic_vector(7 downto 0);  -- PRBS generator (TX)
     signal rx_lfsr: std_logic_vector(7 downto 0);  -- PRBS checker (RX)
-    signal tx_pkt:  integer range 0 to 65535;      -- packets transmitted this run
-    signal rx_pkt:  integer range 0 to 65535;      -- packets received this run
+    signal tx_pkt:  natural;      -- packets transmitted this run (free-running in loop mode)
+    signal rx_pkt:  natural;      -- packets received this run
     constant PRBS_SEED: std_logic_vector(7 downto 0) := x"FF";
     constant PRBS_POLY: std_logic_vector(7 downto 0) := x"B8"; -- maximal 8-bit LFSR
 
@@ -229,7 +230,7 @@ architecture rtl of spw_loopback_axi is
                 when x"00" => rd := EXAMPLE_ID;
                 when x"04" => rd := EXAMPLE_VER;
                 when x"08" => rd := scratch_r;
-                when x"0C" => rd := (0 => selftest_en_r, others => '0');
+                when x"0C" => rd := (0 => selftest_en_r, 3 => selftest_loop_r, others => '0');
                 when x"10" => rd := status_word(spw_status_r, bringup_done_r,
                                     not rxfifo_empty, not dm_tx_pending,
                                     selftest_pass_r, selftest_done_r,
@@ -436,7 +437,7 @@ begin
                             -- continues) or finish.
                             if (m_axis_tvalid_r = '1') and (m_axis_tready = '1') then
                                 txcount_r <= txcount_r + 1;
-                                if tx_pkt = (SELFTEST_PKTS - 1) then
+                                if (selftest_loop_r = '0') and (tx_pkt = (SELFTEST_PKTS - 1)) then
                                     m_axis_tvalid_r <= '0';
                                     m_axis_tlast_r  <= '0';
                                     tstate <= T_DONE;
@@ -464,7 +465,7 @@ begin
                             end if;
                             exp_idx <= 0;
                             rx_pkt  <= rx_pkt + 1;
-                            if rx_pkt = (SELFTEST_PKTS - 1) then
+                            if (selftest_loop_r = '0') and (rx_pkt = (SELFTEST_PKTS - 1)) then
                                 check_active    <= '0';
                                 selftest_busy_r <= '0';
                                 selftest_done_r <= '1';
@@ -543,6 +544,7 @@ begin
                 wstate <= W_IDLE; awready_s <= '1'; wready_s <= '0'; bvalid_s <= '0';
                 w_addr <= (others => '0'); w_len <= (others => '0');
                 scratch_r <= (others => '0'); selftest_en_r <= '1';
+                selftest_loop_r <= '0';
                 selftest_start_pulse <= '0'; soft_reset_pulse <= '0';
                 dm_tx_push <= '0'; dm_tx_beat <= (others => '0');
             else
@@ -572,6 +574,7 @@ begin
                                     if s_axi_wstrb(0) = '1' then
                                         selftest_en_r        <= s_axi_wdata(0);
                                         selftest_start_pulse <= s_axi_wdata(1);
+                                        selftest_loop_r      <= s_axi_wdata(3);
                                         soft_reset_pulse     <= s_axi_wdata(2);
                                     end if;
                                 when x"1C" =>
