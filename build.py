@@ -126,10 +126,30 @@ def cmd_test(args: argparse.Namespace) -> None:
 
 
 def cmd_vivado(args: argparse.Namespace) -> None:
+    """Build an FPGA bitstream via the Arty A7-100T example flow."""
+    example_build = ROOT / "examples" / "arty_a7100t" / "build.py"
+    submodule = ROOT / "examples" / "arty_a7100t" / "fpgacapZero" / "rtl"
     if args.dry_run:
-        print("Vivado flow is not implemented yet; dry run passed.")
+        missing = []
+        if shutil.which(args.vivado or "vivado") is None:
+            missing.append(f"vivado (looked for {args.vivado or 'vivado'} on PATH)")
+        if not submodule.is_dir():
+            missing.append("fpgacapZero submodule (git submodule update --init "
+                           "examples/arty_a7100t/fpgacapZero)")
+        if not example_build.is_file():
+            missing.append(str(example_build))
+        if missing:
+            raise SystemExit("ERROR: Vivado flow not ready:\n  - " + "\n  - ".join(missing))
+        kind = f"{args.hdl}{' fast' if args.fast else ''}"
+        print(f"Vivado flow dry run passed; would build the Arty A7-100T {kind} bitstream.")
         return
-    raise SystemExit("ERROR: Vivado flow is not implemented yet")
+
+    cmd = [sys.executable, str(example_build), "--hdl", args.hdl]
+    if args.fast:
+        cmd.append("--fast")
+    if args.vivado:
+        cmd.extend(["--vivado", args.vivado])
+    run(cmd)
 
 
 def main() -> int:
@@ -158,7 +178,12 @@ def main() -> int:
     )
     test_parser.set_defaults(func=cmd_test)
 
-    vivado_parser = subparsers.add_parser("vivado", help="run or check the Vivado build flow")
+    vivado_parser = subparsers.add_parser("vivado", help="build the Arty A7-100T example bitstream with Vivado")
+    vivado_parser.add_argument("--hdl", choices=("verilog", "vhdl"), default="verilog",
+                               help="HDL flavor of the example to build")
+    vivado_parser.add_argument("--fast", action="store_true",
+                               help="fast multi-clock 100 Mbit/s build (exercises the CDC + spw_cdc.xdc)")
+    vivado_parser.add_argument("--vivado", default=None, help="path to the vivado executable")
     vivado_parser.add_argument("--dry-run", action="store_true", help="check flow wiring without building")
     vivado_parser.set_defaults(func=cmd_vivado)
 

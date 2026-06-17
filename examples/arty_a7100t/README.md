@@ -56,7 +56,8 @@ All four lit = link up and loopback self-check passed. `btn[0]` resets the desig
 | `build.py` | Vivado build launcher (`--hdl verilog|vhdl`) |
 | `build_arty.tcl` / `build_arty_vhdl.tcl` | Vivado batch scripts |
 | `arty_a7100t.cfg` | OpenOCD config for the onboard USB-JTAG |
-| `host_loopback_test.py` | fcapz host verification script |
+| `host_loopback_test.py` | fcapz host verification script (`--stress N` soak) |
+| `ela_capture_demo.py` | fcapz ELA waveform capture of the live SpaceWire D/S lines |
 | `tb/` | cocotb functional sim (engine + core, internal loopback) |
 | `fpgacapZero/` | fpgacapZero debug-core RTL (git submodule) |
 
@@ -138,6 +139,27 @@ python examples/arty_a7100t/host_loopback_test.py \
     --bitfile examples/arty_a7100t/spw_arty_a7100t_top.bit --stress 180
 ```
 
+### ELA waveform capture
+
+ELA0 (USER1, instance 0) samples the SpaceWire `do/so/di/si` pins plus status in
+the system clock domain. This brings the link up, runs the self-check, captures a
+window, renders the four Data/Strobe signals as an ASCII waveform, checks they
+toggle and that the internal loopback holds (`do==di`, `so==si`), and writes a VCD:
+
+```sh
+python examples/arty_a7100t/ela_capture_demo.py \
+    --bitfile examples/arty_a7100t/spw_arty_a7100t_top.bit
+```
+
+Use the generic build for a clear waveform (at 100 MHz sampling each 10 Mbit/s bit
+is ~10 samples wide). Example output shows the SpaceWire Data-Strobe encoding
+(`do` and `so` never change on the same bit):
+
+```text
+   spw_do: |####__________##########______________________________##########################|
+   spw_so: |##################################__________####################__________######|
+```
+
 Or drive the cores directly with the `fcapz` CLI, e.g. read the example ID and
 the SpaceWire CORE_ID:
 
@@ -151,18 +173,19 @@ fcapz --backend hw_server --port 3121 --tap xc7a100t axi-read 0x14   # -> 0x5350
 ## FPGA resource usage and timing
 
 Whole design (SpaceWire core + loopback engine + fpgacapZero debug cores: 2 ELA,
-2 EIO, EJTAG-AXI bridge), Verilog build.
+2 EIO, EJTAG-AXI bridge) on `xc7a100tcsg324-1` (Artix-7), Vivado 2025.2, default
+implementation strategy, Verilog build. Post-route, all timing constraints met.
 
-- Device: `xc7a100tcsg324-1` (Artix-7), Vivado 2025.2, default implementation
-  strategy.
-- Clock: single 100 MHz domain (board oscillator), `create_clock` 10.000 ns.
-- LUTs: 4000 / 63400 (6.3%); Registers: 4699 / 126800 (3.7%);
-  Block RAM: 4 / 135 (3.0%); IOB: 11; BUFG: 3; MMCM: 0.
-- Timing: all constraints met — setup WNS +1.848 ns, hold WHS +0.025 ns
-  (worst slack, post-route).
+| Build | Clocks | LUTs | Registers | BRAM | BUFG | MMCM | Setup WNS | Link rate |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic | clk 100 MHz | 4000 (6.3%) | 4699 (3.7%) | 4 | 3 | 0 | +1.848 ns | ~10 Mbit/s |
+| fast | clk 100, rxclk 150, txclk 100 MHz | 4268 (6.7%) | 5060 (4.0%) | 4 | 6 | 1 | +1.927 ns | 100 Mbit/s |
 
-The VHDL build targets the same device and clock; numbers are comparable.
-SpaceWire run bit rate is set by `LINK_TXDIVCNT` (default `0x09`).
+The fast build adds the MMCM (1) and extra clock buffers for the separate
+`rxclk`/`txclk` domains and the oversampling fast RX/TX front ends. IOB usage is
+11 in both. The VHDL builds target the same device/clocks with comparable numbers
+(fast VHDL setup WNS +2.055 ns). SpaceWire run bit rate is `txclk/(LINK_TXDIVCNT+1)`
+(generic `LINK_TXDIVCNT=9` -> ~10 Mbit/s; fast `LINK_TXDIVCNT=0` -> 100 Mbit/s).
 
 ## Author and License
 
