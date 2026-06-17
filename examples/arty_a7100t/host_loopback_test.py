@@ -44,6 +44,7 @@ RXDATA      = 0x20
 TXCOUNT     = 0x24
 RXCOUNT     = 0x28
 ERRCOUNT    = 0x2C
+PKTCOUNT    = 0x30
 
 ST_LINK_RUNNING  = 1 << 0
 ST_SELFTEST_DONE = 1 << 2
@@ -53,6 +54,7 @@ ST_BRINGUP_DONE  = 1 << 6
 EXPECT_EXAMPLE_ID = 0x5350574C  # "SPWL"
 EXPECT_SPW_COREID = 0x53505752  # "SPWR"
 SELFTEST_LEN = 16
+SELFTEST_PKTS = 4
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_BIT = HERE / "spw_arty_a7100t_top.bit"
@@ -122,9 +124,11 @@ def run(args) -> int:
     st = poll(lambda: axi.axi_read(STATUS), ST_SELFTEST_DONE)
     expect(st & ST_SELFTEST_PASS, f"fabric self-check passed (STATUS={st:#010x})")
     txc, rxc, errc = (axi.axi_read(TXCOUNT), axi.axi_read(RXCOUNT), axi.axi_read(ERRCOUNT))
-    print(f"  self-check counters: TX={txc} RX={rxc} ERR={errc}")
-    expect(txc == SELFTEST_LEN + 1 and rxc == SELFTEST_LEN + 1 and errc == 0,
-           "self-check counts (16 data + EOP, 0 errors)")
+    pkts = axi.axi_read(PKTCOUNT)
+    expected = SELFTEST_PKTS * (SELFTEST_LEN + 1)  # PRBS bytes + EOP per packet
+    print(f"  self-check: {pkts} back-to-back PRBS packets, TX={txc} RX={rxc} ERR={errc}")
+    expect(txc == expected and rxc == expected and pkts == SELFTEST_PKTS and errc == 0,
+           f"self-check counts ({SELFTEST_PKTS} packets x {SELFTEST_LEN} PRBS + EOP, 0 errors)")
 
     # --- host-driven data-mover loopback ---
     axi.axi_write(CTRL, 0x0)              # selftest_en = 0 -> manual control

@@ -16,8 +16,10 @@ that:
 - is the **AXI-Lite master** that brings the link up (writes `CONTROL`/`TXDIVCNT`),
   reads back the SpaceWire `CORE_ID`, and polls `STATUS`;
 - owns the N-Char **AXI-Stream** TX/RX and runs either a fabric **self-check**
-  (sends 16 data chars + EOP, checks the looped-back stream) or a host
-  **data-mover** (push/pop N-Chars from the host);
+  (sends `SELFTEST_PKTS` back-to-back packets, each `SELFTEST_LEN` PRBS bytes +
+  EOP, with the PRBS sequence continuing across packets so any dropped or
+  duplicated char is caught, and checks the looped-back stream at link rate) or a
+  host **data-mover** (push/pop N-Chars from the host);
 - presents an **AXI4 slave** register file to the fpgacapZero EJTAG-AXI bridge so
   the host drives and observes everything over JTAG.
 
@@ -71,7 +73,8 @@ All four lit = link up and loopback self-check passed. `btn[0]` resets the desig
 | `0x18` | `SPW_STATUS` | RO | last raw SpaceWire `STATUS` word |
 | `0x1C` | `TXDATA` | WO | data-mover push: `[7:0]` data `[8]` tlast `[9]` tuser(EEP) |
 | `0x20` | `RXDATA` | RO | data-mover pop: `[7:0]` data `[8]` tlast `[9]` tuser `[31]` valid |
-| `0x24`/`0x28`/`0x2C` | `TXCOUNT`/`RXCOUNT`/`ERRCOUNT` | RO | self-check counters |
+| `0x24`/`0x28`/`0x2C` | `TXCOUNT`/`RXCOUNT`/`ERRCOUNT` | RO | self-check N-Char counts and PRBS/framing mismatches |
+| `0x30` | `PKTCOUNT` | RO | self-check packets received (EOP count) |
 
 ## Build
 

@@ -17,7 +17,8 @@ entity spw_loopback_axi is
         EXAMPLE_ID:    std_logic_vector(31 downto 0) := x"5350574C"; -- "SPWL"
         EXAMPLE_VER:   std_logic_vector(31 downto 0) := x"00010000";
         LINK_TXDIVCNT: std_logic_vector(7 downto 0)  := x"09";
-        SELFTEST_LEN:  integer := 16
+        SELFTEST_LEN:  integer := 16;
+        SELFTEST_PKTS: integer := 4
     );
     port (
         clk: in std_logic;
@@ -135,9 +136,24 @@ architecture rtl of spw_loopback_axi is
     signal selftest_pass_r: std_logic;
 
     -- TX path / self-check
-    signal tx_idx:  integer range 0 to 255;
-    signal exp_idx: integer range 0 to 255;
+    signal tx_idx:  integer range 0 to 255;  -- PRBS byte index in current TX packet
+    signal exp_idx: integer range 0 to 255;  -- PRBS byte index in current RX packet
     signal check_active: std_logic;
+    signal tx_lfsr: std_logic_vector(7 downto 0);  -- PRBS generator (TX)
+    signal rx_lfsr: std_logic_vector(7 downto 0);  -- PRBS checker (RX)
+    signal tx_pkt:  integer range 0 to 65535;      -- packets transmitted this run
+    signal rx_pkt:  integer range 0 to 65535;      -- packets received this run
+    constant PRBS_SEED: std_logic_vector(7 downto 0) := x"FF";
+    constant PRBS_POLY: std_logic_vector(7 downto 0) := x"B8"; -- maximal 8-bit LFSR
+
+    function prbs_next(s: std_logic_vector(7 downto 0)) return std_logic_vector is
+    begin
+        if s(0) = '1' then
+            return ('0' & s(7 downto 1)) xor PRBS_POLY;
+        else
+            return '0' & s(7 downto 1);
+        end if;
+    end function;
     signal m_axis_tdata_r:  std_logic_vector(7 downto 0);
     signal m_axis_tvalid_r: std_logic;
     signal m_axis_tlast_r:  std_logic;
@@ -229,6 +245,7 @@ architecture rtl of spw_loopback_axi is
                 when x"24" => rd := std_logic_vector(txcount_r);
                 when x"28" => rd := std_logic_vector(rxcount_r);
                 when x"2C" => rd := std_logic_vector(errcount_r);
+                when x"30" => rd := std_logic_vector(to_unsigned(rx_pkt, 32));
                 when others => null;
             end case;
         end if;
@@ -364,6 +381,7 @@ begin
         if rising_edge(clk) then
             if rst = '1' then
                 tstate <= T_IDLE; tx_idx <= 0; exp_idx <= 0; check_active <= '0';
+                tx_lfsr <= PRBS_SEED; rx_lfsr <= PRBS_SEED; tx_pkt <= 0; rx_pkt <= 0;
                 selftest_busy_r <= '0'; selftest_done_r <= '0'; selftest_pass_r <= '0';
                 txcount_r <= (others => '0'); rxcount_r <= (others => '0');
                 errcount_r <= (others => '0');
@@ -382,6 +400,8 @@ begin
                             if (bringup_done_r = '1') and (link_running_i = '1') and
                                ((selftest_start_pulse = '1') or (selftest_done_r = '0')) then
                                 tx_idx <= 0; exp_idx <= 0;
+                                tx_pkt <= 0; rx_pkt <= 0;
+                                tx_lfsr <= PRBS_SEED; rx_lfsr <= PRBS_SEED;
                                 errcount_r <= (others => '0');
                                 txcount_r <= (others => '0');
                                 rxcount_r <= (others => '0');
@@ -392,12 +412,14 @@ begin
                                 tstate <= T_DATA;
                             end if;
                         when T_DATA =>
-                            m_axis_tdata_r  <= std_logic_vector(to_unsigned(tx_idx, 8));
+                            -- Present the current PRBS byte; hold until accepted.
+                            m_axis_tdata_r  <= tx_lfsr;
                             m_axis_tlast_r  <= '0';
                             m_axis_tuser_r  <= '0';
                             m_axis_tvalid_r <= '1';
                             if (m_axis_tvalid_r = '1') and (m_axis_tready = '1') then
                                 txcount_r <= txcount_r + 1;
+                                tx_lfsr   <= prbs_next(tx_lfsr);
                                 if tx_idx = (SELFTEST_LEN - 1) then
                                     m_axis_tdata_r  <= (others => '0');
                                     m_axis_tlast_r  <= '1';
@@ -406,41 +428,59 @@ begin
                                     tstate <= T_EOP;
                                 else
                                     tx_idx <= tx_idx + 1;
-                                    m_axis_tdata_r <= std_logic_vector(to_unsigned(tx_idx + 1, 8));
+                                    m_axis_tdata_r <= prbs_next(tx_lfsr);
                                 end if;
                             end if;
                         when T_EOP =>
+                            -- On accept, start next packet back-to-back (PRBS
+                            -- continues) or finish.
                             if (m_axis_tvalid_r = '1') and (m_axis_tready = '1') then
                                 txcount_r <= txcount_r + 1;
-                                m_axis_tvalid_r <= '0';
-                                m_axis_tlast_r  <= '0';
-                                tstate <= T_DONE;
+                                if tx_pkt = (SELFTEST_PKTS - 1) then
+                                    m_axis_tvalid_r <= '0';
+                                    m_axis_tlast_r  <= '0';
+                                    tstate <= T_DONE;
+                                else
+                                    tx_pkt <= tx_pkt + 1;
+                                    tx_idx <= 0;
+                                    m_axis_tdata_r  <= tx_lfsr;
+                                    m_axis_tlast_r  <= '0';
+                                    m_axis_tuser_r  <= '0';
+                                    m_axis_tvalid_r <= '1';
+                                    tstate <= T_DATA;
+                                end if;
                             end if;
                         when others =>
                             m_axis_tvalid_r <= '0';
                     end case;
 
-                    -- self-check comparator
+                    -- self-check comparator (PRBS, multi-packet)
                     if (check_active = '1') and (s_axis_tvalid = '1') and (s_axis_tready_r = '1') then
                         rxcount_r <= rxcount_r + 1;
                         if s_axis_tlast = '1' then
-                            if (s_axis_tuser(0) = '1') or (exp_idx /= SELFTEST_LEN) then
+                            if (s_axis_tuser(0) = '1') or (exp_idx /= SELFTEST_LEN) or
+                               (s_axis_tdata /= x"00") then
                                 errcount_r <= errcount_r + 1;
                             end if;
-                            check_active    <= '0';
-                            selftest_busy_r <= '0';
-                            selftest_done_r <= '1';
-                            if (errcount_r = 0) and (s_axis_tuser(0) = '0') and
-                               (exp_idx = SELFTEST_LEN) and
-                               (s_axis_tdata = x"00") then
-                                selftest_pass_r <= '1';
-                            else
-                                selftest_pass_r <= '0';
+                            exp_idx <= 0;
+                            rx_pkt  <= rx_pkt + 1;
+                            if rx_pkt = (SELFTEST_PKTS - 1) then
+                                check_active    <= '0';
+                                selftest_busy_r <= '0';
+                                selftest_done_r <= '1';
+                                if (errcount_r = 0) and (s_axis_tuser(0) = '0') and
+                                   (exp_idx = SELFTEST_LEN) and
+                                   (s_axis_tdata = x"00") then
+                                    selftest_pass_r <= '1';
+                                else
+                                    selftest_pass_r <= '0';
+                                end if;
                             end if;
                         else
-                            if unsigned(s_axis_tdata) /= to_unsigned(exp_idx, 8) then
+                            if s_axis_tdata /= rx_lfsr then
                                 errcount_r <= errcount_r + 1;
                             end if;
+                            rx_lfsr <= prbs_next(rx_lfsr);
                             exp_idx <= exp_idx + 1;
                         end if;
                     end if;

@@ -26,6 +26,7 @@ RXDATA      = 0x20
 TXCOUNT     = 0x24
 RXCOUNT     = 0x28
 ERRCOUNT    = 0x2C
+PKTCOUNT    = 0x30
 
 # STATUS bits
 ST_LINK_RUNNING  = 1 << 0
@@ -35,6 +36,7 @@ ST_SELFTEST_PASS = 1 << 3
 ST_BRINGUP_DONE  = 1 << 6
 
 SELFTEST_LEN = 16
+SELFTEST_PKTS = 4
 
 
 async def axi_write(dut, addr, data, strb=0xF):
@@ -143,10 +145,14 @@ async def test_loopback_selftest(dut):
     txc = await axi_read(dut, TXCOUNT)
     rxc = await axi_read(dut, RXCOUNT)
     errc = await axi_read(dut, ERRCOUNT)
-    assert txc == SELFTEST_LEN + 1, f"TXCOUNT={txc}"
-    assert rxc == SELFTEST_LEN + 1, f"RXCOUNT={rxc}"
+    pkts = await axi_read(dut, PKTCOUNT)
+    expected = SELFTEST_PKTS * (SELFTEST_LEN + 1)  # PRBS bytes + EOP, per packet
+    assert txc == expected, f"TXCOUNT={txc} (expected {expected})"
+    assert rxc == expected, f"RXCOUNT={rxc} (expected {expected})"
+    assert pkts == SELFTEST_PKTS, f"PKTCOUNT={pkts} (expected {SELFTEST_PKTS})"
     assert errc == 0, f"ERRCOUNT={errc}"
-    dut._log.info(f"self-check pass: TX={txc} RX={rxc} ERR={errc}")
+    dut._log.info(f"self-check pass: {pkts} back-to-back PRBS packets, "
+                  f"TX={txc} RX={rxc} ERR={errc}")
 
 
 @cocotb.test()

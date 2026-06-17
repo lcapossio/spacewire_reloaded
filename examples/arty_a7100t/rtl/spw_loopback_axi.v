@@ -34,7 +34,13 @@
  *                        [31]=valid (1 if a beat was returned, else FIFO empty)
  *   0x24 TXCOUNT     RO  N-Chars transmitted (self-check or data-mover)
  *   0x28 RXCOUNT     RO  N-Chars received
- *   0x2C ERRCOUNT    RO  self-check comparison mismatches
+ *   0x2C ERRCOUNT    RO  self-check PRBS/framing mismatches
+ *   0x30 PKTCOUNT    RO  self-check packets received (EOP count)
+ *
+ * The fabric self-check sends SELFTEST_PKTS back-to-back packets, each
+ * SELFTEST_LEN PRBS bytes (shared 8-bit LFSR, seed 0xFF) followed by EOP, with
+ * the PRBS sequence continuing across packets so any dropped or duplicated char
+ * desyncs the RX checker and is counted in ERRCOUNT.
  */
 
 `timescale 1ns/1ps
@@ -43,7 +49,8 @@ module spw_loopback_axi #(
     parameter [31:0] EXAMPLE_ID  = 32'h5350574C, // "SPWL"
     parameter [31:0] EXAMPLE_VER = 32'h00010000,
     parameter [7:0]  LINK_TXDIVCNT = 8'd9,       // ~ sysfreq/(divcnt+1) run rate
-    parameter [7:0]  SELFTEST_LEN  = 8'd16       // N data bytes before EOP
+    parameter [7:0]  SELFTEST_LEN  = 8'd16,      // PRBS data bytes per packet
+    parameter [7:0]  SELFTEST_PKTS = 8'd4        // back-to-back packets per run
 ) (
     input  wire        clk,
     input  wire        rst,
@@ -289,9 +296,22 @@ module spw_loopback_axi #(
         T_EOP  = 3'd3,
         T_DONE = 3'd4;
     reg [2:0]  tstate;
-    reg [7:0]  tx_idx;
-    reg [7:0]  exp_idx;       // expected RX byte index for the checker
+    reg [7:0]  tx_idx;        // PRBS byte index within the current TX packet
+    reg [7:0]  exp_idx;       // PRBS byte index within the current RX packet
     reg        check_active;
+    reg [7:0]  tx_lfsr;       // PRBS generator (TX) - same sequence as rx_lfsr
+    reg [7:0]  rx_lfsr;       // PRBS checker (RX)
+    reg [15:0] tx_pkt;        // packets transmitted this run
+    reg [15:0] rx_pkt;        // packets received this run (EOP count)
+    localparam [7:0] PRBS_SEED = 8'hFF;
+    localparam [7:0] PRBS_POLY = 8'hB8; // maximal 8-bit Galois LFSR (period 255)
+
+    function [7:0] prbs_next;
+        input [7:0] s;
+        begin
+            prbs_next = s[0] ? ((s >> 1) ^ PRBS_POLY) : (s >> 1);
+        end
+    endfunction
 
     // Combolike defaults driven in the clocked block below.
     always @(posedge clk) begin
@@ -300,6 +320,10 @@ module spw_loopback_axi #(
             tx_idx          <= 8'd0;
             exp_idx         <= 8'd0;
             check_active    <= 1'b0;
+            tx_lfsr         <= PRBS_SEED;
+            rx_lfsr         <= PRBS_SEED;
+            tx_pkt          <= 16'd0;
+            rx_pkt          <= 16'd0;
             selftest_busy_r <= 1'b0;
             selftest_done_r <= 1'b0;
             selftest_pass_r <= 1'b0;
@@ -328,6 +352,10 @@ module spw_loopback_axi #(
                             (selftest_start_pulse || !selftest_done_r)) begin
                             tx_idx          <= 8'd0;
                             exp_idx         <= 8'd0;
+                            tx_pkt          <= 16'd0;
+                            rx_pkt          <= 16'd0;
+                            tx_lfsr         <= PRBS_SEED;
+                            rx_lfsr         <= PRBS_SEED;
                             errcount_r      <= 32'd0;
                             txcount_r       <= 32'd0;
                             rxcount_r       <= 32'd0;
@@ -339,16 +367,16 @@ module spw_loopback_axi #(
                         end
                     end
                     T_DATA: begin
-                        // Present the current data char; hold it until accepted.
-                        m_axis_tdata  <= tx_idx;
+                        // Present the current PRBS byte; hold it until accepted.
+                        m_axis_tdata  <= tx_lfsr;
                         m_axis_tlast  <= 1'b0;
                         m_axis_tuser  <= 1'b0;
                         m_axis_tvalid <= 1'b1;
                         if (m_axis_tvalid && m_axis_tready) begin
                             txcount_r <= txcount_r + 1'b1;
+                            tx_lfsr   <= prbs_next(tx_lfsr);
                             if (tx_idx == (SELFTEST_LEN - 1)) begin
-                                // Last data accepted: present the EOP beat next
-                                // (overrides the data presentation above).
+                                // End of packet: present EOP next.
                                 m_axis_tdata  <= 8'd0; // 0 => EOP
                                 m_axis_tlast  <= 1'b1;
                                 m_axis_tuser  <= 1'b0;
@@ -356,17 +384,28 @@ module spw_loopback_axi #(
                                 tstate        <= T_EOP;
                             end else begin
                                 tx_idx        <= tx_idx + 1'b1;
-                                m_axis_tdata  <= tx_idx + 1'b1; // present next char
+                                m_axis_tdata  <= prbs_next(tx_lfsr); // next PRBS byte
                             end
                         end
                     end
                     T_EOP: begin
-                        // EOP beat already presented; wait for it to be accepted.
+                        // EOP presented; on accept start the next packet
+                        // back-to-back (PRBS continues across packets) or finish.
                         if (m_axis_tvalid && m_axis_tready) begin
-                            txcount_r     <= txcount_r + 1'b1;
-                            m_axis_tvalid <= 1'b0;
-                            m_axis_tlast  <= 1'b0;
-                            tstate        <= T_DONE;
+                            txcount_r <= txcount_r + 1'b1;
+                            if (tx_pkt == (SELFTEST_PKTS - 1)) begin
+                                m_axis_tvalid <= 1'b0;
+                                m_axis_tlast  <= 1'b0;
+                                tstate        <= T_DONE;
+                            end else begin
+                                tx_pkt        <= tx_pkt + 1'b1;
+                                tx_idx        <= 8'd0;
+                                m_axis_tdata  <= tx_lfsr; // first byte of next packet
+                                m_axis_tlast  <= 1'b0;
+                                m_axis_tuser  <= 1'b0;
+                                m_axis_tvalid <= 1'b1;
+                                tstate        <= T_DATA;
+                            end
                         end
                     end
                     T_DONE: begin
@@ -375,23 +414,30 @@ module spw_loopback_axi #(
                     default: tstate <= T_IDLE;
                 endcase
 
-                // ---- Self-check receiver/comparator ----
+                // ---- Self-check receiver/comparator (PRBS, multi-packet) ----
                 if (check_active && s_axis_tvalid && s_axis_tready) begin
                     rxcount_r <= rxcount_r + 1'b1;
                     if (s_axis_tlast) begin
-                        // Terminal beat: expect EOP (tuser=0) after SELFTEST_LEN data
-                        if (s_axis_tuser[0] || (exp_idx != SELFTEST_LEN))
+                        // EOP must be a real EOP (tuser=0, data=0) closing a packet
+                        // of exactly SELFTEST_LEN PRBS bytes.
+                        if (s_axis_tuser[0] || (exp_idx != SELFTEST_LEN) ||
+                            (s_axis_tdata != 8'd0))
                             errcount_r <= errcount_r + 1'b1;
-                        check_active    <= 1'b0;
-                        selftest_busy_r <= 1'b0;
-                        selftest_done_r <= 1'b1;
-                        selftest_pass_r <= (errcount_r == 32'd0) &&
-                                           !s_axis_tuser[0] &&
-                                           (exp_idx == SELFTEST_LEN) &&
-                                           (s_axis_tdata == 8'd0);
+                        exp_idx <= 8'd0;
+                        rx_pkt  <= rx_pkt + 1'b1;
+                        if (rx_pkt == (SELFTEST_PKTS - 1)) begin
+                            check_active    <= 1'b0;
+                            selftest_busy_r <= 1'b0;
+                            selftest_done_r <= 1'b1;
+                            selftest_pass_r <= (errcount_r == 32'd0) &&
+                                               !s_axis_tuser[0] &&
+                                               (exp_idx == SELFTEST_LEN) &&
+                                               (s_axis_tdata == 8'd0);
+                        end
                     end else begin
-                        if (s_axis_tdata != exp_idx[7:0])
+                        if (s_axis_tdata != rx_lfsr)
                             errcount_r <= errcount_r + 1'b1;
+                        rx_lfsr <= prbs_next(rx_lfsr);
                         exp_idx <= exp_idx + 1'b1;
                     end
                 end
@@ -558,6 +604,7 @@ module spw_loopback_axi #(
                 8'h24: reg_read = txcount_r;
                 8'h28: reg_read = rxcount_r;
                 8'h2C: reg_read = errcount_r;
+                8'h30: reg_read = {16'd0, rx_pkt};   // packets received (EOP count)
                 default: reg_read = 32'd0;
             endcase
         end
