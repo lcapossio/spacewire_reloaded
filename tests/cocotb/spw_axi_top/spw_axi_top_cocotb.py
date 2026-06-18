@@ -246,3 +246,111 @@ async def axi_top_recovers_from_stream_reset_and_link_reconnect(dut):
             ([0xD0 + i for i in range(4)], 0x01),
         ],
     )
+
+
+async def clear_rx_timecode(axil):
+    # W1C the received-timecode valid bit (byte 3, bit 31).
+    await axil.write(REG_TIMECODE_RX + 3, bytes([0x80]))
+
+
+async def send_timecode(axil, clk, value):
+    await clear_rx_timecode(axil)
+    await axil.write_dword(REG_TIMECODE_TX, 0x80000000 | value)
+    for _ in range(5000):
+        rx = await axil.read_dword(REG_TIMECODE_RX)
+        if rx & (1 << 31):
+            return rx
+        await RisingEdge(clk)
+    raise AssertionError(f"time-code 0x{value:02x} never looped back")
+
+
+@cocotb.test()
+async def axi_top_timecode_transparency_and_run_gating(dut):
+    """The core is a transparent TimeCode pipe: it forwards any time value as-is
+    (no hardware 'previous+1' filter, no master time counter), and only when the
+    link is in Run state. The SpaceWire increment policy is a host concern."""
+    cocotb.start_soon(Clock(dut.clk, 50, unit="ns").start())
+    cocotb.start_soon(Clock(dut.rxclk, 20, unit="ns").start())
+    cocotb.start_soon(Clock(dut.txclk, 20, unit="ns").start())
+    initialize_bus_inputs(dut)
+    await reset_dut(dut)
+    start_common_assertions(dut)
+
+    axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
+    await configure_running(axil)
+
+    # Deliberately non-incrementing: repeats, a wrap 0x3F->0x00, and big jumps,
+    # plus all four control-flag combinations. Every one must come back exactly,
+    # proving the core does not silently drop/alter non-sequential time-codes.
+    for value in (0x00, 0x00, 0x05, 0x3F, 0x00, 0x2A, 0x95, 0xC1, 0x40, 0x3F):
+        rx = await send_timecode(axil, dut.clk, value)
+        assert rx == (0x80000000 | value), (
+            f"time-code 0x{value:02x} not forwarded verbatim (got 0x{rx:08x})"
+        )
+
+    # Run-state gating: with the link disabled, a tick must NOT be transmitted.
+    await axil.write_dword(REG_CONTROL, 0x00000008)  # linkdis
+    for _ in range(20000):
+        if not (await axil.read_dword(REG_STATUS)) & (1 << 2):
+            break
+        await RisingEdge(dut.clk)
+    else:
+        raise AssertionError("link did not leave Run on linkdis")
+    await clear_rx_timecode(axil)
+    await axil.write_dword(REG_TIMECODE_TX, 0x80000033)
+    for _ in range(3000):
+        await RisingEdge(dut.clk)
+    assert not (await axil.read_dword(REG_TIMECODE_RX)) & (1 << 31), (
+        "a time-code was transmitted while the link was not running"
+    )
+
+    # Re-enable and confirm time-codes flow again.
+    await axil.write_dword(REG_CONTROL, 0x00000006)
+    await wait_running(axil)
+    await axil.write(REG_ERROR, bytes([0x0F]))
+    assert (await send_timecode(axil, dut.clk, 0x33)) == 0x80000033
+
+
+@cocotb.test()
+async def axi_top_sustained_rx_backpressure_preserves_data(dut):
+    """Stall the RX consumer long enough to fill the RX FIFO (64 entries) and
+    force credit-based flow control, then confirm every byte arrives in order
+    once the consumer resumes (no overflow/loss/duplication)."""
+    cocotb.start_soon(Clock(dut.clk, 50, unit="ns").start())
+    cocotb.start_soon(Clock(dut.rxclk, 20, unit="ns").start())
+    cocotb.start_soon(Clock(dut.txclk, 20, unit="ns").start())
+    initialize_bus_inputs(dut)
+    await reset_dut(dut)
+    # Keep every real protocol check (payload stable while stalled, N-Char
+    # encoding, reset behaviour) but drop the stall-cycle hang heuristic: this
+    # test deliberately backpressures both streams far longer than 256 cycles.
+    start_axil_assertions(cocotb, dut)
+    start_axis_assertions(cocotb, dut, "s_axis", max_stall_cycles=None)
+    start_axis_assertions(cocotb, dut, "m_axis", reset_must_clear_valid=True,
+                          max_stall_cycles=None)
+
+    axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
+    source = AxiStreamSource(AxiStreamBus.from_prefix(dut, "s_axis"), dut.clk, dut.rst)
+    sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "m_axis"), dut.clk, dut.rst)
+    await configure_running(axil)
+
+    # Hold the sink stalled, then queue 120 bytes (> 64-entry RX FIFO).
+    sink.pause = True
+    packets = [
+        ([0x40 + i for i in range(40)], 0x00),
+        ([(0x80 + i) & 0xFF for i in range(40)], 0x01),
+        ([((i * 7) + 3) & 0xFF for i in range(40)], 0x00),
+    ]
+    for payload, terminator in packets:
+        source.send_nowait(nchar_frame(payload, terminator))
+
+    # Let the pipe stall: RX FIFO fills, flow control stops, TX/source back up.
+    for _ in range(6000):
+        await RisingEdge(dut.clk)
+
+    # Release the consumer; everything must drain intact and in order.
+    sink.pause = False
+    for payload, terminator in packets:
+        received = await with_timeout(sink.recv(), 3, "ms")
+        assert frame_bytes(received) == bytes([*payload, terminator])
+        assert frame_user_bits(received) == expected_user_bits(payload, terminator)

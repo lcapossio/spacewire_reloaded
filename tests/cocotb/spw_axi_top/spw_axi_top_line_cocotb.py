@@ -7,7 +7,7 @@ import os
 import cocotb
 from cocotb.triggers import Edge, First, RisingEdge, Timer, with_timeout
 from cocotb.utils import get_sim_time
-from cocotbext.axi import AxiLiteBus, AxiLiteMaster
+from cocotbext.axi import AxiLiteBus, AxiLiteMaster, AxiStreamBus, AxiStreamSink
 
 
 REG_CONTROL = 0x08
@@ -97,6 +97,12 @@ class SpaceWireLineDriver:
         for bit in bits:
             self.parity ^= bit
         await self.bit(bits[7])
+
+    async def timecode(self, value):
+        # Time-Code = ESC followed by a data character carrying the 8-bit
+        # control[7:6]+time[5:0] field.
+        await self.esc()
+        await self.data_char(value & 0xFF)
 
     async def null_stream(self):
         while True:
@@ -346,3 +352,184 @@ async def axi_top_external_line_reports_credit_error(dut):
     error = await wait_error(axil, dut.clk, ERR_CRED)
     assert error & ERR_CRED
     await wait_not_running(axil, dut.clk)
+
+
+def frame_len(frame):
+    return 1 if isinstance(frame.tdata, int) else len(frame.tdata)
+
+
+def last_user_bit(frame):
+    return frame.tuser if isinstance(frame.tuser, int) else list(frame.tuser)[-1]
+
+
+async def relink_external(dut, axil, line, tx_div):
+    """Re-establish the external link from scratch after an error."""
+    line.reset()
+    for _ in range(20):
+        await RisingEdge(dut.clk)
+    await start_external_link(dut, axil, line, tx_div=tx_div)
+
+
+@cocotb.test()
+async def axi_top_external_line_error_burst(dut):
+    """Several link errors in succession, each followed by a clean re-link, to
+    confirm the link error/recovery path survives back-to-back faults."""
+    axil, line = await setup_default_external_dut(dut)
+    tx_div = env_int("SPW_TX_CLOCK_DIV", 1)
+
+    # 1) parity error
+    await line.data_char(0x55)
+    await line.data_char(0xAA, bad_parity=True)
+    assert (await wait_error(axil, dut.clk, ERR_PAR)) & ERR_PAR
+    await wait_not_running(axil, dut.clk)
+    await relink_external(dut, axil, line, tx_div)
+
+    # 2) escape error
+    esc_task = cocotb.start_soon(line.esc_stream())
+    try:
+        assert (await wait_error(axil, dut.clk, ERR_ESC)) & ERR_ESC
+        await wait_not_running(axil, dut.clk)
+    finally:
+        esc_task.kill()
+    await relink_external(dut, axil, line, tx_div)
+
+    # 3) credit error
+    for _ in range(12):
+        await line.fct()
+    assert (await wait_error(axil, dut.clk, ERR_CRED)) & ERR_CRED
+    await wait_not_running(axil, dut.clk)
+    await relink_external(dut, axil, line, tx_div)
+
+    # 4) disconnect error
+    line.reset()
+    assert (await wait_error(axil, dut.clk, ERR_DISC)) & ERR_DISC
+    await wait_not_running(axil, dut.clk)
+    await relink_external(dut, axil, line, tx_div)
+
+    assert (await axil.read_dword(REG_STATUS)) & (1 << 2), "link not running after burst"
+
+
+@cocotb.test()
+async def axi_top_external_line_functional_coverage(dut):
+    """Drive one comprehensive scenario and report MEASURED functional coverage
+    of the observable SpaceWire behaviours, asserting every cover-point is hit.
+
+    This is cover-point (functional) coverage, achievable with the installed
+    simulators. RTL line/branch/toggle coverage would need Verilator or a gcov
+    GHDL build (neither installed); see README for that path."""
+    cover = {
+        name: False
+        for name in (
+            "state_started",
+            "state_connecting",
+            "state_running",
+            "recovered_after_error",
+            "err_disc",
+            "err_par",
+            "err_esc",
+            "err_cred",
+            "rx_data_char",
+            "rx_eop",
+            "rx_eep",
+            "rx_timecode",
+        )
+    }
+
+    sys_freq = env_float("SPW_SYS_CLOCK_FREQ", 20.0e6)
+    rx_freq = env_float("SPW_RX_CLOCK_FREQ", 20.0e6)
+    tx_freq = env_float("SPW_TX_CLOCK_FREQ", 20.0e6)
+    input_rate = env_float("SPW_INPUT_RATE", 10.0e6)
+    tx_div = env_int("SPW_TX_CLOCK_DIV", 1)
+
+    cocotb.start_soon(run_clock(dut.clk, sys_freq))
+    cocotb.start_soon(run_clock(dut.rxclk, rx_freq))
+    cocotb.start_soon(run_clock(dut.txclk, tx_freq))
+    initialize_inputs(dut)
+    await reset_dut(dut)
+
+    line = SpaceWireLineDriver(dut.spw_di_ext, dut.spw_si_ext, input_rate)
+    line.reset()
+    axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
+    sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "m_axis"), dut.clk, dut.rst)
+
+    # --- bring-up: started -> connecting -> running ---
+    await axil.write_dword(REG_TXDIVCNT, tx_div & 0xFF)
+    await axil.write_dword(REG_ERROR, 0x0000000F)
+    await axil.write_dword(REG_CONTROL, 0x00000006)
+    await wait_started(axil, dut.clk)
+    cover["state_started"] = True
+    await drive_remote_startup(axil, dut.clk, line)  # asserts connecting + running
+    cover["state_connecting"] = True
+    cover["state_running"] = True
+    await wait_running(axil, dut.clk)
+
+    # --- RX stimulus, sent back-to-back so the line never goes idle (an idle
+    # line would disconnect): a data packet ending in EOP, one ending in EEP,
+    # and a time-code, then NULLs to flush while the chars drain. ---
+    for value in (0x11, 0x22, 0x33):
+        await line.data_char(value)
+    await line.eop(eep=False)
+    await line.data_char(0x44)
+    await line.eop(eep=True)
+    await line.timecode(0x2A)
+    for _ in range(8):
+        await line.null()
+
+    # frames were captured by the sink in the background; drain them now
+    frame = await with_timeout(sink.recv(), 300, "us")
+    if frame_len(frame) > 1:
+        cover["rx_data_char"] = True
+    if last_user_bit(frame) == 0:
+        cover["rx_eop"] = True
+    frame = await with_timeout(sink.recv(), 300, "us")
+    if last_user_bit(frame) == 1:
+        cover["rx_eep"] = True
+    for _ in range(2000):
+        if (await axil.read_dword(REG_STATUS)) & (1 << 7):  # rx tick valid
+            cover["rx_timecode"] = True
+            break
+        await RisingEdge(dut.clk)
+
+    # the idle AXI reads above may have disconnected the line; re-link cleanly
+    # before the deliberate error sweep.
+    await relink_external(dut, axil, line, tx_div)
+
+    # --- all four link errors, re-linking after each (recovery) ---
+    await line.data_char(0x55)
+    await line.data_char(0xAA, bad_parity=True)
+    if (await wait_error(axil, dut.clk, ERR_PAR)) & ERR_PAR:
+        cover["err_par"] = True
+    await wait_not_running(axil, dut.clk)
+    await relink_external(dut, axil, line, tx_div)
+    cover["recovered_after_error"] = True
+
+    esc_task = cocotb.start_soon(line.esc_stream())
+    try:
+        if (await wait_error(axil, dut.clk, ERR_ESC)) & ERR_ESC:
+            cover["err_esc"] = True
+        await wait_not_running(axil, dut.clk)
+    finally:
+        esc_task.kill()
+    await relink_external(dut, axil, line, tx_div)
+
+    for _ in range(12):
+        await line.fct()
+    if (await wait_error(axil, dut.clk, ERR_CRED)) & ERR_CRED:
+        cover["err_cred"] = True
+    await wait_not_running(axil, dut.clk)
+    await relink_external(dut, axil, line, tx_div)
+
+    line.reset()
+    if (await wait_error(axil, dut.clk, ERR_DISC)) & ERR_DISC:
+        cover["err_disc"] = True
+    await wait_not_running(axil, dut.clk)
+    await relink_external(dut, axil, line, tx_div)
+
+    hit = sum(1 for v in cover.values() if v)
+    total = len(cover)
+    dut._log.info("=== spw_axi_top functional coverage ===")
+    for name, value in cover.items():
+        dut._log.info(f"  [{'x' if value else ' '}] {name}")
+    dut._log.info(f"covered {hit}/{total} cover-points")
+    missing = [name for name, value in cover.items() if not value]
+    assert not missing, f"uncovered functional cover-points: {missing}"
