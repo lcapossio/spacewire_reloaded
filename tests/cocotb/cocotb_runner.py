@@ -38,6 +38,20 @@ def cocotb_lib_dir() -> str:
     return result.stdout.strip()
 
 
+def cocotb_vpi_module(simulator: str) -> str:
+    """The VPI module name to pass to ``vvp -m``. cocotb names it differently per
+    platform (``cocotbvpi_icarus`` on Windows, ``libcocotbvpi_icarus`` on Linux),
+    so ask cocotb rather than hardcoding it."""
+    result = subprocess.run(
+        ["cocotb-config", "--lib-name", "vpi", simulator],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
 def ghdl_vpi_lib_dir() -> str:
     result = subprocess.run(
         ["ghdl", "--vpi-library-dir"],
@@ -124,7 +138,7 @@ def run_icarus(
     env["COCOTB_RESULTS_FILE"] = str(results_file)
 
     run(
-        ["vvp", "-M", cocotb_lib_dir(), "-m", "cocotbvpi_icarus", str(sim_file)],
+        ["vvp", "-M", cocotb_lib_dir(), "-m", cocotb_vpi_module("icarus"), str(sim_file)],
         cwd=ROOT,
         env=env,
     )
