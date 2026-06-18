@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# Copyright (C) 2026 Leonardo Capossio - bard0 design
+# Author: Leonardo Capossio - bard0 design - hello@bard0.com
+
+name: Coverage
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verilator-line-coverage:
+    runs-on: ubuntu-latest
+    env:
+      # Must be >= 5.022: cocotb's Verilator harness calls VPI entry points
+      # (clearEvalNeeded/doInertialPuts/evalNeeded) missing from the apt 5.020.
+      # v5.048 is the version this flow was developed and validated against.
+      VERILATOR_REF: v5.048
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Build deps for Verilator and runtime deps for the generated models
+      # (g++/make/perl) are needed whether or not the build is cached.
+      - name: Install Verilator build/runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git help2man perl python3 make autoconf g++ \
+            flex bison ccache libfl2 libfl-dev zlib1g zlib1g-dev
+
+      - name: Cache Verilator build
+        id: cache-verilator
+        uses: actions/cache@v4
+        with:
+          path: ~/verilator-install
+          key: verilator-${{ runner.os }}-${{ env.VERILATOR_REF }}
+
+      - name: Build Verilator from source
+        if: steps.cache-verilator.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/verilator/verilator
+          cd verilator
+          git checkout "$VERILATOR_REF"
+          autoconf
+          ./configure --prefix="$HOME/verilator-install"
+          make -j"$(nproc)"
+          make install
+
+      - name: Put Verilator on PATH
+        run: echo "$HOME/verilator-install/bin" >> "$GITHUB_PATH"
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r requirements-dev.txt
+
+      - name: Show tool versions
+        run: |
+          python3 --version
+          verilator --version
+          cocotb-config --version
+
+      - name: Run Verilator RTL line coverage (fails below the floor)
+        run: python3 tests/cocotb/verilator_coverage.py --min 90
+
+      - name: Upload merged coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verilator-coverage
+          path: build/coverage/merged.info
+          if-no-files-found: ignore

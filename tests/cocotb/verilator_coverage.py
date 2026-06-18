@@ -20,7 +20,8 @@ and the Debian/Ubuntu apt package (5.020) is too old. Build a current ``stable``
 Verilator from source if needed.
 
 Usage:
-    python3 tests/cocotb/verilator_coverage.py
+    python3 tests/cocotb/verilator_coverage.py            # report only
+    python3 tests/cocotb/verilator_coverage.py --min 90   # also fail if < 90%
 
 The build/coverage artifacts go under ``build/coverage`` (git-ignored); override
 the location with ``SPW_COV_BUILD`` (e.g. a fast native path when the repo lives
@@ -65,6 +66,15 @@ BUILD_ARGS = [
 
 def coverage_base() -> Path:
     return Path(os.environ.get("SPW_COV_BUILD", str(ROOT / "build" / "coverage")))
+
+
+def parse_min(argv: list[str]) -> float | None:
+    for index, arg in enumerate(argv):
+        if arg == "--min" and index + 1 < len(argv):
+            return float(argv[index + 1])
+        if arg.startswith("--min="):
+            return float(arg.split("=", 1)[1])
+    return None
 
 
 def run_config(label: str, module: str, params: dict) -> tuple[Path, bool]:
@@ -119,6 +129,7 @@ def lcov_line_stats(info: Path) -> dict[str, list[int]]:
 
 
 def main() -> int:
+    min_pct = parse_min(sys.argv[1:])
     for tool in ("verilator", "verilator_coverage"):
         if shutil.which(tool) is None:
             raise SystemExit(
@@ -157,6 +168,10 @@ def main() -> int:
     overall = 100.0 * total_hit / total_found if total_found else 0.0
     print(f"  {'TOTAL (RTL)':26s} {total_hit:5d}/{total_found:<5d} {overall:6.1f}%")
     print(f"\nmerged lcov info: {merged}")
+
+    if min_pct is not None and overall < min_pct:
+        print(f"ERROR: RTL line coverage {overall:.1f}% is below the {min_pct:.1f}% floor")
+        return 1
     return 0 if all_ok else 1
 
 
