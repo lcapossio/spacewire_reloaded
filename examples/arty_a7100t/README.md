@@ -27,8 +27,10 @@ The SpaceWire transmit pins are looped back to the receive pins:
 
 - `LOOPBACK_INTERNAL = 1` (default): `spw_do -> spw_di`, `spw_so -> spw_si`
   inside the FPGA.
-- `LOOPBACK_INTERNAL = 0`: routed to Pmod **JA**; wire `JA1->JA3` (Dout->Din)
-  and `JA2->JA4` (Sout->Sin) externally.
+- `LOOPBACK_INTERNAL = 0`: routed to single-ended (LVCMOS33, **not** LVDS) Pmod
+  **JA**; fit two straight jumpers `JA1->JA7` (Dout->Din) and `JA4->JA10`
+  (Sout->Sin). Data and Strobe sit in separate columns to limit crosstalk, and
+  the inputs have pulldowns so a removed/absent jumper reads a clean disconnect.
 
 fpgacapZero debug cores give three host verification surfaces: the EJTAG-AXI
 bridge (USER4) for register/data access, two ELAs (USER1) capturing the

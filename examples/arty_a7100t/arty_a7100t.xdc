@@ -21,14 +21,18 @@ set_property -dict {PACKAGE_PIN J5  IOSTANDARD LVCMOS33} [get_ports {led[1]}]
 set_property -dict {PACKAGE_PIN T9  IOSTANDARD LVCMOS33} [get_ports {led[2]}]
 set_property -dict {PACKAGE_PIN T10 IOSTANDARD LVCMOS33} [get_ports {led[3]}]
 
-# ---- SpaceWire Data/Strobe on Pmod JA ----
-# For external loopback (LOOPBACK_INTERNAL=0) wire JA1->JA3 (Dout->Din) and
-# JA2->JA4 (Sout->Sin). For internal loopback the inputs are ignored but the
-# outputs still toggle so a scope can observe the link.
+# ---- SpaceWire Data/Strobe on Pmod JA (single-ended LVCMOS33, not LVDS) ----
+# Four single-ended D/S signals: outputs on the top row, the matching inputs
+# directly below, with Data and Strobe in separate columns to keep D/S crosstalk
+# down. For external loopback (LOOPBACK_INTERNAL=0) fit two straight jumpers:
+# JA1->JA7 (Dout->Din) and JA4->JA10 (Sout->Sin). For internal loopback the
+# inputs are ignored, but the outputs still toggle so a scope/ELA can observe the
+# link. The inputs have pulldowns so a removed/absent jumper reads a clean static
+# 0 (deterministic disconnect) instead of floating.
 set_property -dict {PACKAGE_PIN G13 IOSTANDARD LVCMOS33} [get_ports spw_do_pin] ;# JA1
-set_property -dict {PACKAGE_PIN B11 IOSTANDARD LVCMOS33} [get_ports spw_so_pin] ;# JA2
-set_property -dict {PACKAGE_PIN A11 IOSTANDARD LVCMOS33} [get_ports spw_di_pin] ;# JA3
-set_property -dict {PACKAGE_PIN D12 IOSTANDARD LVCMOS33} [get_ports spw_si_pin] ;# JA4
+set_property -dict {PACKAGE_PIN D12 IOSTANDARD LVCMOS33} [get_ports spw_so_pin] ;# JA4
+set_property -dict {PACKAGE_PIN D13 IOSTANDARD LVCMOS33 PULLTYPE PULLDOWN} [get_ports spw_di_pin] ;# JA7
+set_property -dict {PACKAGE_PIN K16 IOSTANDARD LVCMOS33 PULLTYPE PULLDOWN} [get_ports spw_si_pin] ;# JA10
 
 # ---- BSCANE2 TCK / JTAG-debug CDC ----
 # fpgacapZero debug cores cross between the JTAG (BSCANE2 TCK) domain and the

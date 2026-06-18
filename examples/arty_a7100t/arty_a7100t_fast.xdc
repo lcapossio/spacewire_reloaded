@@ -25,11 +25,14 @@ set_property -dict {PACKAGE_PIN J5  IOSTANDARD LVCMOS33} [get_ports {led[1]}]
 set_property -dict {PACKAGE_PIN T9  IOSTANDARD LVCMOS33} [get_ports {led[2]}]
 set_property -dict {PACKAGE_PIN T10 IOSTANDARD LVCMOS33} [get_ports {led[3]}]
 
-# ---- SpaceWire Data/Strobe on Pmod JA ----
+# ---- SpaceWire Data/Strobe on Pmod JA (single-ended LVCMOS33, not LVDS) ----
+# Outputs top row, inputs directly below, Data and Strobe in separate columns.
+# External loopback: JA1->JA7 (Dout->Din), JA4->JA10 (Sout->Sin). Inputs have
+# pulldowns so an absent jumper reads a clean static 0 (deterministic disconnect).
 set_property -dict {PACKAGE_PIN G13 IOSTANDARD LVCMOS33} [get_ports spw_do_pin] ;# JA1
-set_property -dict {PACKAGE_PIN B11 IOSTANDARD LVCMOS33} [get_ports spw_so_pin] ;# JA2
-set_property -dict {PACKAGE_PIN A11 IOSTANDARD LVCMOS33} [get_ports spw_di_pin] ;# JA3
-set_property -dict {PACKAGE_PIN D12 IOSTANDARD LVCMOS33} [get_ports spw_si_pin] ;# JA4
+set_property -dict {PACKAGE_PIN D12 IOSTANDARD LVCMOS33} [get_ports spw_so_pin] ;# JA4
+set_property -dict {PACKAGE_PIN D13 IOSTANDARD LVCMOS33 PULLTYPE PULLDOWN} [get_ports spw_di_pin] ;# JA7
+set_property -dict {PACKAGE_PIN K16 IOSTANDARD LVCMOS33 PULLTYPE PULLDOWN} [get_ports spw_si_pin] ;# JA10
 
 # ---- BSCANE2 TCK (JTAG-debug) primary clock ----
 create_clock -name tck_bscan -period 100.0 \

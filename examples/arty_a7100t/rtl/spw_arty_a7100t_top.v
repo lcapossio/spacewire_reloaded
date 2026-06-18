@@ -8,7 +8,8 @@
  * A single SpaceWire link (spw_axi_top) is wired in loopback: its transmit
  * outputs (spw_do/spw_so) feed its own receive inputs (spw_di/spw_si), either
  * internally inside the FPGA (LOOPBACK_INTERNAL=1, default) or externally
- * through a Pmod wire (LOOPBACK_INTERNAL=0: wire JA do->di, so->si).
+ * through single-ended Pmod JA wires (LOOPBACK_INTERNAL=0: jumper JA1->JA7
+ * Dout->Din and JA4->JA10 Sout->Sin; the Pmod is LVCMOS33, not LVDS).
  *
  * Verification is done with fpgacapZero ("fcapz") over JTAG:
  *  - EJTAG-AXI bridge (USER4) -> spw_loopback_axi engine register file. The
