@@ -42,18 +42,76 @@ SPW_DIR = ROOT / "tests" / "cocotb" / "spw_axi_top"
 sys.path.insert(0, str(SPW_DIR))
 sys.path.insert(0, str(ROOT))
 
-from tests.cocotb.spw_axi_top.test_spw_axi_top_runner import VERILOG_RTL  # noqa: E402
+from tests.cocotb.spw_axi_top.test_spw_axi_top_runner import (  # noqa: E402
+    SPWLINK_SWEEP_CASES,
+    VERILOG_RTL,
+    sweep_env,
+    verilog_sweep_parameters,
+)
 
-TOP = "spw_axi_top_loop_tb"
+RTL = [ROOT / p for p in VERILOG_RTL]
+INTEG_TOP = "spw_axi_top_loop_tb"
+INTEG_TB = SPW_DIR / f"{INTEG_TOP}.v"
 
-# (label, cocotb test module, testbench parameters) build/run configurations.
-# Together they exercise the generic and fast front ends and the link-error
-# paths, so the merged coverage spans the whole core and the AXI wrappers.
+
+def _integ(label: str, module: str, params: dict | None = None) -> dict:
+    """An spw_axi_top integration config (full core + AXI wrappers, looped)."""
+    return {
+        "label": label,
+        "top": INTEG_TOP,
+        "sources": RTL + [INTEG_TB],
+        "module": module,
+        "test_dir": SPW_DIR,
+        "params": params or {},
+        "env": {},
+    }
+
+
+def _sweep(label: str, case_id: int) -> dict:
+    """A fast-front-end config driven by a spwlink sweep case, whose clocks are
+    matched to the RX chunk so the link comes up (the loopback module's fixed
+    clocks do not suit every fast configuration)."""
+    case = next(c for c in SPWLINK_SWEEP_CASES if c["id"] == case_id)
+    cfg = _integ(label, "spw_axi_top_sweep_cocotb", verilog_sweep_parameters(case))
+    cfg["env"] = sweep_env(case)
+    return cfg
+
+
+def _leaf(name: str) -> dict:
+    """A leaf-module unit config (the RTL module is its own cocotb toplevel)."""
+    return {
+        "label": name,
+        "top": name,
+        "sources": [ROOT / "rtl" / "verilog" / f"{name}.v"],
+        "module": f"{name}_cocotb",
+        "test_dir": ROOT / "tests" / "cocotb" / name,
+        "params": {},
+        "env": {},
+    }
+
+
+# Build/run configurations. The integration configs exercise the core and AXI
+# wrappers (generic front ends, link errors); the sweep configs add the fast RX
+# front end (case 5 = RXCHUNK==1 single-bit split; case 22 = high oversample so
+# two bits land per rxclk, plus the fast TX path); the leaf configs add the
+# IRQ/register paths the integration tests do not drive.
 CONFIGS = [
-    ("generic-loopback", "spw_axi_top_cocotb", {}),
-    ("external-line-errors", "spw_axi_top_line_cocotb", {"LOOPBACK": 0}),
-    ("fast-frontends", "spw_axi_top_cocotb", {"RXIMPL": 1, "TXIMPL": 1, "RXCHUNK": 4}),
+    _integ("generic-loopback", "spw_axi_top_cocotb"),
+    _integ("external-line-errors", "spw_axi_top_line_cocotb", {"LOOPBACK": 0}),
+    _integ("fast-loopback", "spw_axi_top_cocotb", {"RXIMPL": 1, "TXIMPL": 1, "RXCHUNK": 4}),
+    _sweep("fast-rx-chunk1", 5),
+    _sweep("fast-rx-tx", 22),
+    _leaf("spw_axi_lite_regs"),
+    _leaf("spw_axis_tx"),
+    _leaf("spw_axis_rx"),
 ]
+
+# Test directories that must be importable so cocotb can find each test module
+# (the runner derives the simulation PYTHONPATH from this process's sys.path).
+for _cfg in CONFIGS:
+    _d = str(_cfg["test_dir"])
+    if _d not in sys.path:
+        sys.path.insert(0, _d)
 
 BUILD_ARGS = [
     "--language", "1364-2005",  # plain Verilog-2005: syncdff's 'do' port is legal
@@ -77,39 +135,39 @@ def parse_min(argv: list[str]) -> float | None:
     return None
 
 
-def run_config(label: str, module: str, params: dict) -> tuple[Path, bool]:
+def run_config(cfg: dict) -> tuple[Path, bool]:
     from cocotb_tools.runner import get_runner
 
-    build_dir = coverage_base() / label
+    build_dir = coverage_base() / cfg["label"]
     build_dir.mkdir(parents=True, exist_ok=True)
-    sources = [ROOT / p for p in VERILOG_RTL] + [SPW_DIR / f"{TOP}.v"]
 
     runner = get_runner("verilator")
     runner.build(
-        sources=sources,
-        hdl_toplevel=TOP,
+        sources=cfg["sources"],
+        hdl_toplevel=cfg["top"],
         build_dir=build_dir,
-        parameters=params,
+        parameters=cfg["params"],
         build_args=BUILD_ARGS,
         always=True,
     )
 
     env = os.environ.copy()
+    env.update(cfg.get("env", {}))  # sweep clock-rate vars read by the cocotb module
     env["PYTHONPATH"] = os.pathsep.join(
-        [str(ROOT), str(SPW_DIR), env.get("PYTHONPATH", "")]
+        [str(ROOT), str(cfg["test_dir"]), env.get("PYTHONPATH", "")]
     )
     ok = True
     try:
         runner.test(
-            test_module=module,
-            hdl_toplevel=TOP,
+            test_module=cfg["module"],
+            hdl_toplevel=cfg["top"],
             test_dir=build_dir,
             results_xml=str(build_dir / "results.xml"),
             extra_env=env,
         )
     except Exception as exc:  # collect coverage even if a test fails
         ok = False
-        print(f"[warn] {label}: cocotb run failed: {exc}")
+        print(f"[warn] {cfg['label']}: cocotb run failed: {exc}")
     return build_dir / "coverage.dat", ok
 
 
@@ -139,14 +197,15 @@ def main() -> int:
 
     dats: list[str] = []
     all_ok = True
-    for label, module, params in CONFIGS:
-        print(f"\n===== coverage config: {label} ({module} {params or 'default'}) =====")
-        dat, ok = run_config(label, module, params)
+    for cfg in CONFIGS:
+        print(f"\n===== coverage config: {cfg['label']} "
+              f"({cfg['module']} {cfg['params'] or 'default'}) =====")
+        dat, ok = run_config(cfg)
         all_ok = all_ok and ok
         if dat.exists():
             dats.append(str(dat))
         else:
-            print(f"[warn] no coverage.dat produced for {label}")
+            print(f"[warn] no coverage.dat produced for {cfg['label']}")
     if not dats:
         raise SystemExit("no coverage data produced")
 
@@ -159,7 +218,7 @@ def main() -> int:
     print(f"\n=== merged Verilator line coverage ({len(dats)} configs) ===")
     for sf, (found, hit) in sorted(per.items()):
         name = Path(sf).name
-        if name == f"{TOP}.v":  # testbench, not RTL under test
+        if name == f"{INTEG_TOP}.v":  # testbench, not RTL under test
             continue
         total_found += found
         total_hit += hit

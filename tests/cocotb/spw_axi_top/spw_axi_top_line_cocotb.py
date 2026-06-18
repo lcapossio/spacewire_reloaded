@@ -533,3 +533,114 @@ async def axi_top_external_line_functional_coverage(dut):
     dut._log.info(f"covered {hit}/{total} cover-points")
     missing = [name for name, value in cover.items() if not value]
     assert not missing, f"uncovered functional cover-points: {missing}"
+
+
+@cocotb.test()
+async def axi_top_external_line_illegal_escape_before_eop(dut):
+    """ESC immediately followed by EOP is an illegal escape sequence and must
+    raise erresc (spwrecv treats ESC+EOP / ESC+EEP as escape errors)."""
+    axil, line = await setup_default_external_dut(dut)
+    await line.esc()
+    await line.eop(eep=False)
+    for _ in range(4):  # keep the line active so the escaped EOP is decoded
+        await line.null()
+    assert (await wait_error(axil, dut.clk, ERR_ESC)) & ERR_ESC
+    await wait_not_running(axil, dut.clk)
+
+
+@cocotb.test()
+async def axi_top_external_line_illegal_escape_before_eep(dut):
+    """ESC immediately followed by EEP is also an illegal escape -> erresc."""
+    axil, line = await setup_default_external_dut(dut)
+    await line.esc()
+    await line.eop(eep=True)
+    for _ in range(4):  # keep the line active so the escaped EEP is decoded
+        await line.null()
+    assert (await wait_error(axil, dut.clk, ERR_ESC)) & ERR_ESC
+    await wait_not_running(axil, dut.clk)
+
+
+@cocotb.test()
+async def axi_top_external_line_rx_credit_underflow(dut):
+    """Sending more N-Chars than the receiver has granted credit for (the RX
+    FIFO is never drained here, so no fresh FCTs are issued) must raise errcred
+    via the RX-credit-underflow path, distinct from the FCT-overflow path."""
+    axil, line = await setup_default_external_dut(dut)
+    # 70 > the ~56 chars granted by the startup FCTs for a 64-entry RX FIFO.
+    for index in range(70):
+        await line.data_char(index & 0xFF)
+    assert (await wait_error(axil, dut.clk, ERR_CRED)) & ERR_CRED
+    await wait_not_running(axil, dut.clk)
+
+
+@cocotb.test()
+async def axi_top_external_line_truncated_packet_emits_eep(dut):
+    """A link drop in the middle of a packet must terminate the partially
+    received packet on the RX stream with an EEP (error end of packet)."""
+    sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "m_axis"), dut.clk, dut.rst)
+    axil, line = await setup_default_external_dut(dut)
+    for value in (0x71, 0x72, 0x73):  # data chars, no EOP -> packet in progress
+        await line.data_char(value)
+    line.reset()  # disconnect mid-packet
+    frame = await with_timeout(sink.recv(), 400, "us")
+    assert last_user_bit(frame) == 1, "truncated packet must end in EEP (tuser=1)"
+    await wait_not_running(axil, dut.clk)
+
+
+async def begin_external_bringup(dut):
+    """Set up clocks + line driver and issue linkstart, WITHOUT completing the
+    remote handshake -- used to exercise the bring-up error-reset paths."""
+    cocotb.start_soon(run_clock(dut.clk, env_float("SPW_SYS_CLOCK_FREQ", 20.0e6)))
+    cocotb.start_soon(run_clock(dut.rxclk, env_float("SPW_RX_CLOCK_FREQ", 20.0e6)))
+    cocotb.start_soon(run_clock(dut.txclk, env_float("SPW_TX_CLOCK_FREQ", 20.0e6)))
+    initialize_inputs(dut)
+    await reset_dut(dut)
+    line = SpaceWireLineDriver(dut.spw_di_ext, dut.spw_si_ext,
+                               env_float("SPW_INPUT_RATE", 10.0e6))
+    line.reset()
+    axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
+    await axil.write_dword(REG_TXDIVCNT, env_int("SPW_TX_CLOCK_DIV", 1) & 0xFF)
+    await axil.write_dword(REG_CONTROL, 0x00000006)  # autostart|linkstart
+    return axil, line
+
+
+async def assert_never_runs(axil, dut, cycles=4000):
+    for _ in range(cycles):
+        assert not (await axil.read_dword(REG_STATUS)) & (1 << 2), \
+            "link reached Run despite a broken bring-up"
+        await RisingEdge(dut.clk)
+
+
+@cocotb.test()
+async def axi_top_external_line_started_times_out(dut):
+    """With no remote response, the link drops out of Started back to error
+    reset and never reaches Run (exercises the Started timeout/error path)."""
+    axil, _line = await begin_external_bringup(dut)
+    await wait_started(axil, dut.clk)
+    await assert_never_runs(axil, dut)
+
+
+@cocotb.test()
+async def axi_top_external_line_connecting_aborts_on_char(dut):
+    """An N-Char arriving while Connecting (before the FCT handshake) aborts the
+    bring-up back to error reset."""
+    axil, line = await begin_external_bringup(dut)
+    await wait_started(axil, dut.clk)
+    for _ in range(64):
+        await line.null()
+        if (await read_status(axil)) & (1 << 1):  # Connecting
+            break
+    await line.data_char(0x5A)  # unexpected N-Char during Connecting
+    await assert_never_runs(axil, dut)
+
+
+@cocotb.test()
+async def axi_top_external_line_early_fct_aborts_bringup(dut):
+    """FCTs arriving during ErrorWait/Ready (before Started) are early activity
+    that forces the link back to error reset, so it never comes up."""
+    axil, line = await begin_external_bringup(dut)
+    fct_task = cocotb.start_soon(line.fct_stream())
+    try:
+        await assert_never_runs(axil, dut, cycles=6000)
+    finally:
+        fct_task.kill()

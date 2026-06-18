@@ -67,7 +67,7 @@ jobs:
           cocotb-config --version
 
       - name: Run Verilator RTL line coverage (fails below the floor)
-        run: python3 tests/cocotb/verilator_coverage.py --min 90
+        run: python3 tests/cocotb/verilator_coverage.py --min 95
 
       - name: Upload merged coverage report
         if: always()
