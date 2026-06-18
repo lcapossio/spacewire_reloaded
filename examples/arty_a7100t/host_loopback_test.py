@@ -46,6 +46,12 @@ RXCOUNT     = 0x28
 ERRCOUNT    = 0x2C
 PKTCOUNT    = 0x30
 ERRINJ      = 0x34
+TIMECODE    = 0x38
+
+TC_VALID    = 1 << 31     # TIMECODE read: a time-code was received
+BEAT_TLAST  = 1 << 8
+BEAT_TUSER  = 1 << 9      # tuser -> EEP (error end of packet)
+BEAT_VALID  = 1 << 31
 
 ST_LINK_RUNNING  = 1 << 0
 ST_SELFTEST_BUSY = 1 << 1
@@ -290,6 +296,126 @@ def run_inject(args) -> int:
     return 0
 
 
+def run_timecode(args) -> int:
+    """Send SpaceWire TimeCodes over the link and confirm they loop back."""
+    from fcapz.ejtagaxi import EjtagAxiController
+
+    t = make_transport(args)
+    axi = EjtagAxiController(t, chain=4)
+    axi.connect()
+    poll(lambda: axi.axi_read(STATUS), ST_BRINGUP_DONE)
+    axi.axi_write(CTRL, 0x0)  # quiet the link, keep it up
+    poll(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
+
+    def send_and_check(tc):
+        axi.axi_write(TIMECODE, tc)
+        for _ in range(2000):
+            val = axi.axi_read(TIMECODE)
+            if (val & TC_VALID) and (val & 0xFF) == tc:
+                return val
+            time.sleep(0.002)
+        raise CheckError(f"time-code {tc:#04x} never looped back (last {val:#010x})")
+
+    for tc in (0x95, 0x2A, 0x3F, 0xC1):
+        val = send_and_check(tc)
+        print(f"  sent {tc:#04x} -> received {val & 0xFF:#04x} (ctrl={val>>6 & 3}, "
+              f"time={val & 0x3F})")
+        expect((val & 0xFF) == tc, f"time-code {tc:#04x} round-tripped")
+
+    print("\nRESULT: PASS - SpaceWire TimeCode loopback verified")
+    return 0
+
+
+def run_eep(args) -> int:
+    """Confirm an EEP (error end of packet) char round-trips with tuser=1,
+    distinct from a normal EOP (tuser=0), through the host data-mover."""
+    from fcapz.ejtagaxi import EjtagAxiController
+
+    t = make_transport(args)
+    axi = EjtagAxiController(t, chain=4)
+    axi.connect()
+    poll(lambda: axi.axi_read(STATUS), ST_BRINGUP_DONE)
+    axi.axi_write(CTRL, 0x0)  # data-mover mode
+    poll(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
+
+    def send_and_pop(term_beat):
+        axi.axi_write(TXDATA, 0x42)         # one data char
+        axi.axi_write(TXDATA, term_beat)    # terminator (EOP or EEP)
+        got = []
+        for _ in range(4000):
+            val = axi.axi_read(RXDATA)
+            if val & BEAT_VALID:
+                got.append(val)
+                if val & BEAT_TLAST:
+                    return got
+            else:
+                time.sleep(0.002)
+        raise CheckError("no end-of-packet received in data-mover loopback")
+
+    got = send_and_pop(BEAT_TUSER | BEAT_TLAST)
+    print(f"  EEP packet beats: {[hex(g & 0x3FF) for g in got]}")
+    expect((got[0] & 0xFF) == 0x42, "data char delivered before terminator")
+    expect((got[0] & BEAT_TUSER) == 0, "data char not flagged EEP")
+    expect(bool(got[-1] & BEAT_TLAST), "EEP marked as end of packet (tlast)")
+    expect(bool(got[-1] & BEAT_TUSER), "EEP terminator has tuser=1")
+
+    got = send_and_pop(BEAT_TLAST)
+    print(f"  EOP packet beats: {[hex(g & 0x3FF) for g in got]}")
+    expect(bool(got[-1] & BEAT_TLAST), "EOP marked as end of packet (tlast)")
+    expect((got[-1] & BEAT_TUSER) == 0, "EOP terminator has tuser=0")
+
+    axi.axi_write(CTRL, CTRL_SELFTEST_EN)
+    print("\nRESULT: PASS - EEP/EOP round-trip verified (tuser distinguishes them)")
+    return 0
+
+
+def run_loadfault(args) -> int:
+    """Inject a fault while back-to-back PRBS traffic is flowing (link under
+    load), confirm detection, then confirm clean operation resumes after
+    recovery (the core-reset flush realigns the self-check)."""
+    from fcapz.ejtagaxi import EjtagAxiController
+
+    t = make_transport(args)
+    axi = EjtagAxiController(t, chain=4)
+    axi.connect()
+    poll(lambda: axi.axi_read(STATUS), ST_BRINGUP_DONE)
+    poll(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
+    # (re)start the self-check into continuous loop mode (the power-on one-shot
+    # run has already finished by now), then confirm it free-runs.
+    axi.axi_write(CTRL, CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP | CTRL_SELFTEST_STRT)
+
+    p0 = axi.axi_read(PKTCOUNT)
+    time.sleep(0.2)
+    p1 = axi.axi_read(PKTCOUNT)
+    expect(p1 > p0, f"back-to-back traffic flowing under load ({p0:,} -> {p1:,})")
+    expect(axi.axi_read(ERRCOUNT) == 0, "no errors before the fault")
+
+    axi.axi_write(ERRINJ, INJ_INVERT)
+    st = poll(lambda: axi.axi_read(STATUS), ERR_ANY)
+    poll_clear(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
+    print(f"  fault under load -> STATUS={st:#010x}, link dropped mid-stream")
+    expect(bool(st & ERR_ANY), "fault under load detected (link error + drop)")
+
+    # recover + restart the self-check from a clean datapath
+    axi.axi_write(ERRINJ, 0x0)
+    axi.axi_write(CTRL, CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP
+                  | CTRL_SELFTEST_STRT | CTRL_SOFT_RESET)
+    poll(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
+    poll_clear(lambda: axi.axi_read(STATUS), ERR_ANY)
+
+    time.sleep(0.1)
+    pa, ea = axi.axi_read(PKTCOUNT), axi.axi_read(ERRCOUNT)
+    time.sleep(0.3)
+    pb, eb = axi.axi_read(PKTCOUNT), axi.axi_read(ERRCOUNT)
+    print(f"  after recovery: packets {pa:,} -> {pb:,}, ERRCOUNT {ea} -> {eb}")
+    expect(pb > pa, "traffic flows again after recovery")
+    expect(eb == ea, "no new errors after recovery (self-check realigned)")
+
+    axi.axi_write(CTRL, 0x0)
+    print("\nRESULT: PASS - fault-under-load detection + clean recovery verified")
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -305,10 +431,22 @@ def main() -> int:
     p.add_argument("--inject", action="store_true",
                    help="inject errors on the internal loopback line and check "
                         "link-error detection + recovery")
+    p.add_argument("--timecode", action="store_true",
+                   help="send SpaceWire TimeCodes and check they loop back")
+    p.add_argument("--eep", action="store_true",
+                   help="check EEP (error end of packet) round-trips with tuser=1")
+    p.add_argument("--loadfault", action="store_true",
+                   help="inject a fault under sustained load and check clean recovery")
     args = p.parse_args()
     try:
         if args.inject:
             return run_inject(args)
+        if args.timecode:
+            return run_timecode(args)
+        if args.eep:
+            return run_eep(args)
+        if args.loadfault:
+            return run_loadfault(args)
         return run_stress(args) if args.stress > 0 else run(args)
     except CheckError as exc:
         print(f"\nRESULT: FAIL - {exc}", file=sys.stderr)

@@ -28,6 +28,13 @@ RXCOUNT     = 0x28
 ERRCOUNT    = 0x2C
 PKTCOUNT    = 0x30
 ERRINJ      = 0x34
+TIMECODE    = 0x38
+
+TC_VALID    = 1 << 31   # TIMECODE read: a time-code was received
+# RXDATA / TXDATA beat fields
+BEAT_TLAST  = 1 << 8
+BEAT_TUSER  = 1 << 9    # tuser -> EEP (error end of packet)
+BEAT_VALID  = 1 << 31
 
 # spw link-error bits within STATUS[11:8]
 ERR_DISC = 1 << 8
@@ -291,3 +298,123 @@ async def test_error_injection(dut):
     await recover()
 
     dut._log.info("error injection + recovery verified")
+
+
+async def poll_timecode(dut, expected, timeout=200000):
+    """Poll TIMECODE until a *new* time-code (valid) with the expected value is
+    mirrored back. The engine clears the received-valid before each send, so a
+    stale value can't satisfy this."""
+    val = 0
+    for _ in range(timeout):
+        val = await axi_read(dut, TIMECODE)
+        if (val & TC_VALID) and (val & 0xFF) == expected:
+            return val
+        await RisingEdge(dut.clk)
+    raise TimeoutError(f"time-code {expected:#04x} never looped back (last={val:#010x})")
+
+
+@cocotb.test()
+async def test_timecode(dut):
+    """SpaceWire TimeCode loopback: the engine sends a time-code over the link
+    and the received one is mirrored back through the TIMECODE register."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+
+    # Quiet the link (data-mover mode, no self-check N-Chars) but keep it up.
+    await axi_write(dut, CTRL, 0x0)
+    await poll_until(dut, STATUS, ST_LINK_RUNNING)
+
+    # Distinct values, including control-flag bits [7:6], sent back-to-back to
+    # prove the clear-before-send makes the check repeatable.
+    for tc in (0x95, 0x2A, 0x3F, 0xC1):
+        await axi_write(dut, TIMECODE, tc)
+        val = await poll_timecode(dut, tc)
+        assert (val & 0xFF) == tc, f"time-code mismatch: got {val:#010x}, sent {tc:#04x}"
+    dut._log.info("time-code loopback ok: 0x95, 0x2A, 0x3F, 0xC1 round-tripped")
+
+
+@cocotb.test()
+async def test_eep_roundtrip(dut):
+    """An EEP (error end of packet) char round-trips with tuser=1, distinct from
+    a normal EOP (tuser=0), through the host data-mover."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+    await axi_write(dut, CTRL, 0x0)               # data-mover mode
+    await poll_until(dut, STATUS, ST_LINK_RUNNING)
+    for _ in range(50):
+        await RisingEdge(dut.clk)
+
+    async def send_and_pop(term_beat):
+        await axi_write(dut, TXDATA, 0x42)        # one data char
+        await axi_write(dut, TXDATA, term_beat)   # terminator (EOP or EEP)
+        got = []
+        for _ in range(20000):
+            val = await axi_read(dut, RXDATA)
+            if val & BEAT_VALID:
+                got.append(val)
+                if val & BEAT_TLAST:
+                    break
+            else:
+                await RisingEdge(dut.clk)
+        else:
+            raise TimeoutError("no end-of-packet received")
+        return got
+
+    # EEP: tuser=1, tlast=1
+    got = await send_and_pop(BEAT_TUSER | BEAT_TLAST)
+    assert (got[0] & 0xFF) == 0x42, f"data char wrong: {got[0]:#010x}"
+    assert (got[0] & BEAT_TUSER) == 0, "data char should not be flagged EEP"
+    assert got[-1] & BEAT_TLAST, "terminator not marked tlast"
+    assert got[-1] & BEAT_TUSER, "EEP terminator should have tuser=1"
+
+    # EOP: tuser=0, tlast=1 (the normal case, to show the bit distinguishes them)
+    got = await send_and_pop(BEAT_TLAST)
+    assert got[-1] & BEAT_TLAST, "terminator not marked tlast"
+    assert (got[-1] & BEAT_TUSER) == 0, "EOP terminator should have tuser=0"
+    dut._log.info("EEP/EOP round-trip ok: EEP -> tuser=1, EOP -> tuser=0")
+
+
+@cocotb.test()
+async def test_fault_under_load(dut):
+    """Inject a fault while back-to-back PRBS traffic is flowing (link under
+    load), confirm it is detected, then confirm the self-check runs cleanly
+    again after recovery (no residual desync)."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+    await axi_write(dut, CTRL, CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP)
+    await poll_until(dut, STATUS, ST_LINK_RUNNING)
+
+    # Sustained load: packets advancing, no errors.
+    p0 = await axi_read(dut, PKTCOUNT)
+    for _ in range(4000):
+        await RisingEdge(dut.clk)
+    p1 = await axi_read(dut, PKTCOUNT)
+    assert p1 > p0, f"packets not advancing under load ({p0} -> {p1})"
+    assert (await axi_read(dut, ERRCOUNT)) == 0, "errors before fault"
+
+    # Corrupt the D line mid-stream -> link error + drop while loaded.
+    await axi_write(dut, ERRINJ, INJ_INVERT)
+    st = await poll_until(dut, STATUS, ERR_ANY)
+    await poll_until_clear(dut, STATUS, ST_LINK_RUNNING)
+    dut._log.info(f"fault under load: STATUS={st:#010x}, link dropped mid-stream")
+
+    # Recover AND restart the self-check (start pulse forces a clean TX/RX resync
+    # so the PRBS streams realign) -> fresh run from a clean state.
+    await axi_write(dut, ERRINJ, 0x0)
+    await axi_write(dut, CTRL, CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP
+                    | CTRL_SELFTEST_STRT | CTRL_SOFT_RESET)
+    await poll_until(dut, STATUS, ST_LINK_RUNNING)
+    await poll_until_clear(dut, STATUS, ERR_ANY)
+
+    # Steady-state after recovery: packets advance and no new errors accumulate.
+    for _ in range(2000):
+        await RisingEdge(dut.clk)
+    pa = await axi_read(dut, PKTCOUNT)
+    ea = await axi_read(dut, ERRCOUNT)
+    for _ in range(6000):
+        await RisingEdge(dut.clk)
+    pb = await axi_read(dut, PKTCOUNT)
+    eb = await axi_read(dut, ERRCOUNT)
+    assert pb > pa, f"packets not advancing after recovery ({pa} -> {pb})"
+    assert eb == ea, f"new errors after recovery: {ea} -> {eb}"
+    dut._log.info(f"recovered under load: packets {pa}->{pb}, ERRCOUNT steady at {eb}")

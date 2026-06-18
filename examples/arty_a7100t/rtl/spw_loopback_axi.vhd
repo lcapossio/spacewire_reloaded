@@ -98,14 +98,18 @@ end entity spw_loopback_axi;
 
 architecture rtl of spw_loopback_axi is
 
-    constant SPW_REG_CORE_ID:  std_logic_vector(7 downto 0) := x"00";
-    constant SPW_REG_CONTROL:  std_logic_vector(7 downto 0) := x"08";
-    constant SPW_REG_STATUS:   std_logic_vector(7 downto 0) := x"0C";
-    constant SPW_REG_TXDIVCNT: std_logic_vector(7 downto 0) := x"10";
-    constant SPW_REG_ERROR:    std_logic_vector(7 downto 0) := x"1C";
+    constant SPW_REG_CORE_ID:     std_logic_vector(7 downto 0) := x"00";
+    constant SPW_REG_CONTROL:     std_logic_vector(7 downto 0) := x"08";
+    constant SPW_REG_STATUS:      std_logic_vector(7 downto 0) := x"0C";
+    constant SPW_REG_TXDIVCNT:    std_logic_vector(7 downto 0) := x"10";
+    constant SPW_REG_TIMECODE_TX: std_logic_vector(7 downto 0) := x"14";
+    constant SPW_REG_TIMECODE_RX: std_logic_vector(7 downto 0) := x"18";
+    constant SPW_REG_ERROR:       std_logic_vector(7 downto 0) := x"1C";
 
-    type m_state_t is (M_RST, M_CTRL_AW, M_CTRL_B, M_DIV_AW, M_DIV_B,
-                       M_ID_AR, M_ID_R, M_STAT_AR, M_STAT_R, M_CLR_AW, M_CLR_B);
+    type m_state_t is (M_RST, M_CRST_AW, M_CRST_B, M_CTRL_AW, M_CTRL_B,
+                       M_DIV_AW, M_DIV_B, M_ID_AR, M_ID_R, M_STAT_AR, M_STAT_R,
+                       M_CLR_AW, M_CLR_B,
+                       M_TC_CLR_AW, M_TC_CLR_B, M_TC_TX_AW, M_TC_TX_B, M_TCRX_R);
     type t_state_t is (T_IDLE, T_DATA, T_EOP, T_DONE);
     type w_state_t is (W_IDLE, W_DATA, W_RESP);
     type r_state_t is (R_IDLE, R_DATA);
@@ -128,6 +132,10 @@ architecture rtl of spw_loopback_axi is
     signal spw_status_r: std_logic_vector(31 downto 0);
     signal bringup_done_r: std_logic;
     signal errclr_pending: std_logic;   -- clear sticky spw errors once link is up
+    signal spw_tc_rx_r:    std_logic_vector(31 downto 0); -- mirror of TIMECODE_RX
+    signal tc_send_value:  std_logic_vector(7 downto 0);  -- time-code to send
+    signal tc_send_push:   std_logic;   -- 1-cycle pulse: host requested a send
+    signal tc_send_pending: std_logic;  -- owned by master FSM: a send is queued
 
     -- example register file
     signal scratch_r:       std_logic_vector(31 downto 0);
@@ -255,6 +263,7 @@ architecture rtl of spw_loopback_axi is
                 when x"2C" => rd := std_logic_vector(errcount_r);
                 when x"30" => rd := std_logic_vector(to_unsigned(rx_pkt, 32));
                 when x"34" => rd(1 downto 0) := errinj_r;
+                when x"38" => rd := spw_tc_rx_r;  -- received time-code mirror
                 when others => null;
             end case;
         end if;
@@ -315,15 +324,36 @@ begin
                 spw_coreid_r <= (others => '0'); spw_status_r <= (others => '0');
                 bringup_done_r <= '0';
                 errclr_pending <= '0';
+                spw_tc_rx_r <= (others => '0');
+                tc_send_pending <= '0';
             else
                 case mstate is
                     when M_RST =>
                         errclr_pending <= '1';  -- clear sticky errors once link is up
+                        -- assert spw core reset first: flushes the core RX FIFO
+                        -- and AXIS bridges so a recovery after a mid-stream error
+                        -- starts from a clean datapath (no stale N-Chars).
                         awaddr_m  <= SPW_REG_CONTROL;
-                        wdata_m   <= x"00000006"; -- autostart|linkstart
+                        wdata_m   <= x"00000001"; -- core_rst=1
                         awvalid_m <= '1';
                         wvalid_m  <= '1';
-                        mstate    <= M_CTRL_AW;
+                        mstate    <= M_CRST_AW;
+                    when M_CRST_AW =>
+                        if m_axil_awready = '1' then awvalid_m <= '0'; end if;
+                        if m_axil_wready  = '1' then wvalid_m  <= '0'; end if;
+                        if (awvalid_m = '0') and (wvalid_m = '0') then
+                            bready_m <= '1';
+                            mstate   <= M_CRST_B;
+                        end if;
+                    when M_CRST_B =>
+                        if m_axil_bvalid = '1' then
+                            bready_m  <= '0';
+                            awaddr_m  <= SPW_REG_CONTROL;
+                            wdata_m   <= x"00000006"; -- core_rst=0, autostart|linkstart
+                            awvalid_m <= '1';
+                            wvalid_m  <= '1';
+                            mstate    <= M_CTRL_AW;
+                        end if;
                     when M_CLR_AW =>
                         if m_axil_awready = '1' then awvalid_m <= '0'; end if;
                         if m_axil_wready  = '1' then wvalid_m  <= '0'; end if;
@@ -395,13 +425,68 @@ begin
                                 awvalid_m <= '1';
                                 wvalid_m  <= '1';
                                 mstate    <= M_CLR_AW;
+                            elsif tc_send_pending = '1' then
+                                -- host requested a time-code send: first W1C the
+                                -- received-timecode valid so a stale one can't pass.
+                                tc_send_pending <= '0';
+                                awaddr_m  <= SPW_REG_TIMECODE_RX;
+                                wdata_m   <= x"80000000";
+                                awvalid_m <= '1';
+                                wvalid_m  <= '1';
+                                mstate    <= M_TC_CLR_AW;
                             else
-                                mstate <= M_STAT_AR;
+                                -- mirror the received time-code every poll cycle
+                                araddr_m  <= SPW_REG_TIMECODE_RX;
+                                arvalid_m <= '1';
+                                rready_m  <= '1';
+                                mstate    <= M_TCRX_R;
                             end if;
+                        end if;
+                    when M_TC_CLR_AW =>
+                        if m_axil_awready = '1' then awvalid_m <= '0'; end if;
+                        if m_axil_wready  = '1' then wvalid_m  <= '0'; end if;
+                        if (awvalid_m = '0') and (wvalid_m = '0') then
+                            bready_m <= '1';
+                            mstate   <= M_TC_CLR_B;
+                        end if;
+                    when M_TC_CLR_B =>
+                        if m_axil_bvalid = '1' then
+                            bready_m  <= '0';
+                            -- now send the requested time-code (tick + ctrl/time)
+                            awaddr_m  <= SPW_REG_TIMECODE_TX;
+                            wdata_m(31)          <= '1';  -- tick trigger
+                            wdata_m(30 downto 8) <= (others => '0');
+                            wdata_m(7 downto 0)  <= tc_send_value;
+                            awvalid_m <= '1';
+                            wvalid_m  <= '1';
+                            mstate    <= M_TC_TX_AW;
+                        end if;
+                    when M_TC_TX_AW =>
+                        if m_axil_awready = '1' then awvalid_m <= '0'; end if;
+                        if m_axil_wready  = '1' then wvalid_m  <= '0'; end if;
+                        if (awvalid_m = '0') and (wvalid_m = '0') then
+                            bready_m <= '1';
+                            mstate   <= M_TC_TX_B;
+                        end if;
+                    when M_TC_TX_B =>
+                        if m_axil_bvalid = '1' then
+                            bready_m <= '0';
+                            mstate   <= M_STAT_AR;
+                        end if;
+                    when M_TCRX_R =>
+                        if m_axil_arready = '1' then arvalid_m <= '0'; end if;
+                        if m_axil_rvalid = '1' then
+                            spw_tc_rx_r <= m_axil_rdata;
+                            rready_m    <= '0';
+                            mstate      <= M_STAT_AR;
                         end if;
                     when others =>
                         mstate <= M_RST;
                 end case;
+                -- Latch a host time-code send request (pulse from the W FSM).
+                if tc_send_push = '1' then
+                    tc_send_pending <= '1';
+                end if;
                 -- soft_reset must override the case's mstate assignment, so it
                 -- comes after the case (last signal assignment wins).
                 if soft_reset_pulse = '1' then
@@ -584,10 +669,12 @@ begin
                 errinj_r <= "00";
                 selftest_start_pulse <= '0'; soft_reset_pulse <= '0';
                 dm_tx_push <= '0'; dm_tx_beat <= (others => '0');
+                tc_send_push <= '0'; tc_send_value <= (others => '0');
             else
                 selftest_start_pulse <= '0';
                 soft_reset_pulse     <= '0';
                 dm_tx_push           <= '0';
+                tc_send_push         <= '0';
                 case wstate is
                     when W_IDLE =>
                         bvalid_s <= '0';
@@ -621,6 +708,11 @@ begin
                                     if s_axi_wstrb(0) = '1' then
                                         errinj_r <= s_axi_wdata(1 downto 0);
                                     end if;
+                                when x"38" =>  -- TIMECODE: send the requested time-code
+                                    if s_axi_wstrb(0) = '1' then
+                                        tc_send_value <= s_axi_wdata(7 downto 0);
+                                    end if;
+                                    tc_send_push <= '1';
                                 when others =>
                                     null;
                             end case;

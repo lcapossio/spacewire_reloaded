@@ -56,7 +56,7 @@ All four lit = link up and loopback self-check passed. `btn[0]` resets the desig
 | `build.py` | Vivado build launcher (`--hdl verilog|vhdl`) |
 | `build_arty.tcl` / `build_arty_vhdl.tcl` | Vivado batch scripts |
 | `arty_a7100t.cfg` | OpenOCD config for the onboard USB-JTAG |
-| `host_loopback_test.py` | fcapz host verification script (`--stress N` soak, `--inject` fault test) |
+| `host_loopback_test.py` | fcapz host verification (`--stress` soak, `--inject`/`--loadfault` faults, `--timecode`, `--eep`) |
 | `ela_capture_demo.py` | fcapz ELA waveform capture of the live SpaceWire D/S lines |
 | `tb/` | cocotb functional sim (engine + core, internal loopback) |
 | `fpgacapZero/` | fpgacapZero debug-core RTL (git submodule) |
@@ -77,6 +77,7 @@ All four lit = link up and loopback self-check passed. `btn[0]` resets the desig
 | `0x24`/`0x28`/`0x2C` | `TXCOUNT`/`RXCOUNT`/`ERRCOUNT` | RO | self-check N-Char counts and PRBS/framing mismatches |
 | `0x30` | `PKTCOUNT` | RO | self-check packets received (EOP count) |
 | `0x34` | `ERRINJ` | RW | fault injection on the internal loopback line: `[0]` freeze (force `di=si=0`, a disconnect) `[1]` invert `do` (corrupts the Data line, a parity/link error). Clear to `0` then pulse `CTRL` soft_reset to recover |
+| `0x38` | `TIMECODE` | RW | SpaceWire TimeCode loopback. Write `[7:0]` = time-code (`[7:6]` control + `[5:0]` time): the engine clears the received-valid then sends it over the link. Read `[5:0]` = last received time, `[7:6]` = control, `[31]` = valid (mirrors the core TIMECODE_RX, refreshed every status poll) |
 
 ## Build
 
@@ -112,7 +113,9 @@ loopback test on the board.
 ## Simulate (no board)
 
 A cocotb functional sim drives the engine's AXI4 slave exactly like fcapz does
-and checks the self-check and host data-mover loopbacks, for both languages:
+and checks, for both languages: the self-check and host data-mover loopbacks,
+continuous (loop) mode, error injection + recovery, TimeCode loopback, EEP
+round-trip, and fault-under-load recovery (7 tests):
 
 ```sh
 python -m pytest examples/arty_a7100t/tb/test_spw_loopback_runner.py            # Verilog (Icarus)
@@ -156,6 +159,26 @@ python examples/arty_a7100t/host_loopback_test.py \
 
 The same sequence is covered in sim by `test_error_injection` in
 [`tb/spw_loopback_cocotb.py`](tb/spw_loopback_cocotb.py) for both languages.
+
+### TimeCode, EEP and fault-under-load
+
+Three more `host_loopback_test.py` modes exercise the rest of the SpaceWire
+feature set on hardware (each also has a matching cocotb test):
+
+```sh
+# SpaceWire TimeCodes: the engine sends 0x95/0x2A/0x3F/0xC1 and checks each
+# loops back through the TIMECODE register (control + time fields).
+python examples/arty_a7100t/host_loopback_test.py --timecode
+
+# EEP: an error-end-of-packet char round-trips with tuser=1, distinct from a
+# normal EOP (tuser=0), through the host data-mover.
+python examples/arty_a7100t/host_loopback_test.py --eep
+
+# Fault under load: corrupt the line while back-to-back PRBS packets are
+# flowing, confirm the link error is detected, then confirm clean operation
+# resumes after recovery (the bring-up core-reset flush realigns the self-check).
+python examples/arty_a7100t/host_loopback_test.py --loadfault
+```
 
 ### ELA waveform capture
 

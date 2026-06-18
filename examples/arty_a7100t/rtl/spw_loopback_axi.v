@@ -40,6 +40,12 @@
  *   0x34 ERRINJ      RW  internal-loopback error injection:
  *                        [0] freeze (hold D/S static -> disconnect/errdisc)
  *                        [1] invert (invert looped-back D -> parity/char error)
+ *   0x38 TIMECODE    RW  SpaceWire TimeCode loopback:
+ *                        write [7:0]=time-code (ctrl[7:6]+time[5:0]) -> the engine
+ *                          clears the received-timecode valid then sends this
+ *                          time-code over the link;
+ *                        read  [5:0]=last received time [7:6]=ctrl [31]=valid
+ *                          (mirrors spw_axi_top TIMECODE_RX, refreshed every poll)
  *
  * spw error bits are visible in STATUS[11:8] and SPW_STATUS[11:8] (sticky). A
  * CTRL[2] soft_reset re-runs bring-up, which first W1C-clears the sticky errors
@@ -137,11 +143,13 @@ module spw_loopback_axi #(
 );
 
     // spw_axi_lite_regs register byte offsets (see rtl/.../spw_axi_lite_regs).
-    localparam [7:0] SPW_REG_CORE_ID  = 8'h00;
-    localparam [7:0] SPW_REG_CONTROL  = 8'h08;
-    localparam [7:0] SPW_REG_STATUS   = 8'h0C;
-    localparam [7:0] SPW_REG_TXDIVCNT = 8'h10;
-    localparam [7:0] SPW_REG_ERROR    = 8'h1C;  // W1C sticky link-error bits
+    localparam [7:0] SPW_REG_CORE_ID     = 8'h00;
+    localparam [7:0] SPW_REG_CONTROL     = 8'h08;
+    localparam [7:0] SPW_REG_STATUS      = 8'h0C;
+    localparam [7:0] SPW_REG_TXDIVCNT    = 8'h10;
+    localparam [7:0] SPW_REG_TIMECODE_TX = 8'h14;  // [31] tick, [7:0] time-code
+    localparam [7:0] SPW_REG_TIMECODE_RX = 8'h18;  // [31] valid, [7:0] time-code
+    localparam [7:0] SPW_REG_ERROR       = 8'h1C;  // W1C sticky link-error bits
 
     // ---- Example register file ----
     reg [31:0] scratch_r;
@@ -157,6 +165,10 @@ module spw_loopback_axi #(
     reg        selftest_pass_r;
     reg        bringup_done_r;
     reg [1:0]  errinj_r;          // [0]=freeze (disconnect), [1]=invert D (parity)
+    reg [31:0] spw_tc_rx_r;       // mirror of spw_axi_top TIMECODE_RX
+    reg [7:0]  tc_send_value;     // time-code byte to send (ctrl[7:6]+time[5:0])
+    reg        tc_send_push;      // 1-cycle pulse from W FSM: host requested a send
+    reg        tc_send_pending;   // owned by master FSM: a send is queued
 
     reg        selftest_start_pulse;
     reg        soft_reset_pulse;
@@ -201,19 +213,26 @@ module spw_loopback_axi #(
     // STATUS forever. soft_reset re-runs from the error clear, so the link
     // recovers and the sticky error bits are cleared.
     // ====================================================================
-    localparam [3:0]
-        M_RST       = 4'd0,
-        M_CTRL_AW   = 4'd1,
-        M_CTRL_B    = 4'd2,
-        M_DIV_AW    = 4'd3,
-        M_DIV_B     = 4'd4,
-        M_ID_AR     = 4'd5,
-        M_ID_R      = 4'd6,
-        M_STAT_AR   = 4'd7,
-        M_STAT_R    = 4'd8,
-        M_CLR_AW    = 4'd9,
-        M_CLR_B     = 4'd10;
-    reg [3:0] mstate;
+    localparam [4:0]
+        M_RST       = 5'd0,
+        M_CRST_AW   = 5'd1,     // pulse spw core reset (flush RX FIFO/bridges)
+        M_CRST_B    = 5'd2,
+        M_CTRL_AW   = 5'd3,
+        M_CTRL_B    = 5'd4,
+        M_DIV_AW    = 5'd5,
+        M_DIV_B     = 5'd6,
+        M_ID_AR     = 5'd7,
+        M_ID_R      = 5'd8,
+        M_STAT_AR   = 5'd9,
+        M_STAT_R    = 5'd10,
+        M_CLR_AW    = 5'd11,
+        M_CLR_B     = 5'd12,
+        M_TC_CLR_AW = 5'd13,    // W1C the spw received-timecode valid bit
+        M_TC_CLR_B  = 5'd14,
+        M_TC_TX_AW  = 5'd15,    // write spw TIMECODE_TX (send the time-code)
+        M_TC_TX_B   = 5'd16,
+        M_TCRX_R    = 5'd17;    // read spw TIMECODE_RX, mirror into spw_tc_rx_r
+    reg [4:0] mstate;
     reg       errclr_pending;   // clear sticky spw errors once after link is up
 
     always @(posedge clk) begin
@@ -231,15 +250,38 @@ module spw_loopback_axi #(
             spw_status_r   <= 32'd0;
             bringup_done_r <= 1'b0;
             errclr_pending <= 1'b0;
+            spw_tc_rx_r    <= 32'd0;
+            tc_send_pending<= 1'b0;
         end else begin
             case (mstate)
                 M_RST: begin
                     errclr_pending <= 1'b1;  // clear sticky errors once link is up
+                    // assert spw core reset first: flushes the core RX FIFO and
+                    // AXIS bridges so a recovery after a mid-stream error starts
+                    // from a clean datapath (no stale buffered N-Chars).
                     m_axil_awaddr  <= SPW_REG_CONTROL;
-                    m_axil_wdata   <= 32'h0000_0006; // autostart|linkstart
+                    m_axil_wdata   <= 32'h0000_0001; // core_rst=1
                     m_axil_awvalid <= 1'b1;
                     m_axil_wvalid  <= 1'b1;
-                    mstate         <= M_CTRL_AW;
+                    mstate         <= M_CRST_AW;
+                end
+                M_CRST_AW: begin
+                    if (m_axil_awready) m_axil_awvalid <= 1'b0;
+                    if (m_axil_wready)  m_axil_wvalid  <= 1'b0;
+                    if (!m_axil_awvalid && !m_axil_wvalid) begin
+                        m_axil_bready <= 1'b1;
+                        mstate        <= M_CRST_B;
+                    end
+                end
+                M_CRST_B: begin
+                    if (m_axil_bvalid) begin
+                        m_axil_bready  <= 1'b0;
+                        m_axil_awaddr  <= SPW_REG_CONTROL;
+                        m_axil_wdata   <= 32'h0000_0006; // core_rst=0, autostart|linkstart
+                        m_axil_awvalid <= 1'b1;
+                        m_axil_wvalid  <= 1'b1;
+                        mstate         <= M_CTRL_AW;
+                    end
                 end
                 M_CLR_AW: begin
                     if (m_axil_awready) m_axil_awvalid <= 1'b0;
@@ -321,13 +363,70 @@ module spw_loopback_axi #(
                             m_axil_awvalid <= 1'b1;
                             m_axil_wvalid  <= 1'b1;
                             mstate         <= M_CLR_AW;
+                        end else if (tc_send_pending) begin
+                            // host requested a time-code send: first W1C the
+                            // received-timecode valid so a stale one can't pass.
+                            tc_send_pending <= 1'b0;
+                            m_axil_awaddr   <= SPW_REG_TIMECODE_RX;
+                            m_axil_wdata    <= 32'h8000_0000;
+                            m_axil_awvalid  <= 1'b1;
+                            m_axil_wvalid   <= 1'b1;
+                            mstate          <= M_TC_CLR_AW;
                         end else begin
-                            mstate <= M_STAT_AR; // poll again
+                            // mirror the received time-code every poll cycle
+                            m_axil_araddr  <= SPW_REG_TIMECODE_RX;
+                            m_axil_arvalid <= 1'b1;
+                            m_axil_rready  <= 1'b1;
+                            mstate         <= M_TCRX_R;
                         end
+                    end
+                end
+                M_TC_CLR_AW: begin
+                    if (m_axil_awready) m_axil_awvalid <= 1'b0;
+                    if (m_axil_wready)  m_axil_wvalid  <= 1'b0;
+                    if (!m_axil_awvalid && !m_axil_wvalid) begin
+                        m_axil_bready <= 1'b1;
+                        mstate        <= M_TC_CLR_B;
+                    end
+                end
+                M_TC_CLR_B: begin
+                    if (m_axil_bvalid) begin
+                        m_axil_bready  <= 1'b0;
+                        // now send the requested time-code (tick + ctrl/time)
+                        m_axil_awaddr  <= SPW_REG_TIMECODE_TX;
+                        m_axil_wdata   <= {1'b1, 23'd0, tc_send_value};
+                        m_axil_awvalid <= 1'b1;
+                        m_axil_wvalid  <= 1'b1;
+                        mstate         <= M_TC_TX_AW;
+                    end
+                end
+                M_TC_TX_AW: begin
+                    if (m_axil_awready) m_axil_awvalid <= 1'b0;
+                    if (m_axil_wready)  m_axil_wvalid  <= 1'b0;
+                    if (!m_axil_awvalid && !m_axil_wvalid) begin
+                        m_axil_bready <= 1'b1;
+                        mstate        <= M_TC_TX_B;
+                    end
+                end
+                M_TC_TX_B: begin
+                    if (m_axil_bvalid) begin
+                        m_axil_bready <= 1'b0;
+                        mstate        <= M_STAT_AR;
+                    end
+                end
+                M_TCRX_R: begin
+                    if (m_axil_arready) m_axil_arvalid <= 1'b0;
+                    if (m_axil_rvalid) begin
+                        spw_tc_rx_r   <= m_axil_rdata;
+                        m_axil_rready <= 1'b0;
+                        mstate        <= M_STAT_AR;
                     end
                 end
                 default: mstate <= M_RST;
             endcase
+            // Latch a host time-code send request (pulse from the W FSM). After
+            // the case so a request arriving as one is consumed isn't lost.
+            if (tc_send_push) tc_send_pending <= 1'b1;
             // soft_reset must override the case's mstate assignment, so place
             // it after the case (last non-blocking write wins).
             if (soft_reset_pulse) begin
@@ -573,10 +672,13 @@ module spw_loopback_axi #(
             soft_reset_pulse     <= 1'b0;
             dm_tx_push    <= 1'b0;
             dm_tx_beat    <= 10'd0;
+            tc_send_push  <= 1'b0;
+            tc_send_value <= 8'd0;
         end else begin
             selftest_start_pulse <= 1'b0;
             soft_reset_pulse     <= 1'b0;
             dm_tx_push           <= 1'b0;
+            tc_send_push         <= 1'b0;
             case (w_state)
                 W_IDLE: begin
                     s_axi_bvalid <= 1'b0;
@@ -612,6 +714,10 @@ module spw_loopback_axi #(
                             end
                             8'h34: begin // ERRINJ (internal-loopback error inject)
                                 if (s_axi_wstrb[0]) errinj_r <= s_axi_wdata[1:0];
+                            end
+                            8'h38: begin // TIMECODE: send the requested time-code
+                                if (s_axi_wstrb[0]) tc_send_value <= s_axi_wdata[7:0];
+                                tc_send_push <= 1'b1;
                             end
                             default: ; // RO or unmapped: ignore
                         endcase
@@ -667,6 +773,7 @@ module spw_loopback_axi #(
                 8'h2C: reg_read = errcount_r;
                 8'h30: reg_read = rx_pkt;             // packets received (EOP count)
                 8'h34: reg_read = {30'd0, errinj_r};  // error-injection control
+                8'h38: reg_read = spw_tc_rx_r;        // received time-code mirror
                 default: reg_read = 32'd0;
             endcase
         end
