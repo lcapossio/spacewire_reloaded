@@ -12,6 +12,7 @@ on a fresh checkout.
 Usage:
     python examples/arty_a7100t/build.py                 # Verilog (default)
     python examples/arty_a7100t/build.py --hdl vhdl
+    python examples/arty_a7100t/build.py --external      # external Pmod loopback
     python examples/arty_a7100t/build.py --vivado /path/to/vivado
 """
 
@@ -54,6 +55,9 @@ def main() -> int:
     parser.add_argument("--fast", action="store_true",
                         help="fast build: MMCM rxclk/txclk + fast RX/TX impl, applies "
                              "constraints/spw_cdc.xdc (exercises the CDC on hardware)")
+    parser.add_argument("--external", action="store_true",
+                        help="external Pmod loopback (LOOPBACK_INTERNAL=0): D/S leave the "
+                             "FPGA on Pmod JA; jumper JA1->JA7 and JA4->JA10")
     args = parser.parse_args()
 
     if not (SUBMODULE / "rtl").is_dir():
@@ -66,13 +70,15 @@ def main() -> int:
     log_dir = Path(args.log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     tcl = TCL[args.hdl]
-    suffix = "_fast" if args.fast else ""
+    suffix = ("_fast" if args.fast else "") + ("_ext" if args.external else "")
     base = BITFILE[args.hdl].stem  # spw_arty_a7100t_top[_vhdl]
     bit = HERE / f"{base}{suffix}.bit"
 
     env = os.environ.copy()
     if args.fast:
         env["SPW_FAST"] = "1"
+    if args.external:
+        env["SPW_EXTLOOP"] = "1"
 
     # Remove a stale bitstream so a failed Vivado run can't masquerade as success
     # (the bit-exists check below would otherwise pass on the previous build).

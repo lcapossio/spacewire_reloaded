@@ -92,9 +92,10 @@ git submodule update --init examples/arty_a7100t/fpgacapZero
 Then build a bitstream (Vivado must be on `PATH`, or pass `--vivado`):
 
 ```sh
-python examples/arty_a7100t/build.py --hdl verilog          # spw_arty_a7100t_top.bit
-python examples/arty_a7100t/build.py --hdl vhdl             # spw_arty_a7100t_top_vhdl.bit
-python examples/arty_a7100t/build.py --hdl verilog --fast   # spw_arty_a7100t_top_fast.bit
+python examples/arty_a7100t/build.py --hdl verilog            # spw_arty_a7100t_top.bit
+python examples/arty_a7100t/build.py --hdl vhdl               # spw_arty_a7100t_top_vhdl.bit
+python examples/arty_a7100t/build.py --hdl verilog --fast     # spw_arty_a7100t_top_fast.bit
+python examples/arty_a7100t/build.py --hdl verilog --external # spw_arty_a7100t_top_ext.bit (jumper JA1->JA7, JA4->JA10)
 ```
 
 ### Generic vs fast build

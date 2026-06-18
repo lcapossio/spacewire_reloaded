@@ -58,11 +58,19 @@ read_verilog [list \
 set fast 0
 if {[info exists ::env(SPW_FAST)] && $::env(SPW_FAST) eq "1"} { set fast 1 }
 
+# External Pmod loopback (LOOPBACK_INTERNAL=0): jumper JA1->JA7, JA4->JA10.
+set extgen [list]
+set extsfx ""
+if {[info exists ::env(SPW_EXTLOOP)] && $::env(SPW_EXTLOOP) eq "1"} {
+    set extgen [list -generic LOOPBACK_INTERNAL=0]
+    set extsfx "_ext"
+}
+
 if {$fast} {
     read_xdc $example_dir/arty_a7100t_fast.xdc
     synth_design -top spw_arty_a7100t_top -part $part -include_dirs $fcapz/rtl \
         -generic RXIMPL=1 -generic TXIMPL=1 -generic RXCHUNK=2 -generic USE_MMCM=1 \
-        -generic LINK_TXDIVCNT=0
+        -generic LINK_TXDIVCNT=0 {*}$extgen
 
     set rxc [get_clocks -of_objects [get_pins -hierarchical -filter {NAME =~ *u_mmcm/CLKOUT0}]]
     set txc [get_clocks -of_objects [get_pins -hierarchical -filter {NAME =~ *u_mmcm/CLKOUT1}]]
@@ -70,15 +78,15 @@ if {$fast} {
         -group [get_clocks board_clk] -group $rxc -group $txc \
         -group [get_clocks tck_bscan]
     read_xdc $root/constraints/spw_cdc.xdc
-    set bit  $example_dir/spw_arty_a7100t_top_vhdl_fast.bit
-    set trpt $example_dir/timing_vhdl_fast.rpt
-    set urpt $example_dir/utilization_vhdl_fast.rpt
+    set bit  $example_dir/spw_arty_a7100t_top_vhdl_fast${extsfx}.bit
+    set trpt $example_dir/timing_vhdl_fast${extsfx}.rpt
+    set urpt $example_dir/utilization_vhdl_fast${extsfx}.rpt
 } else {
     read_xdc $example_dir/arty_a7100t.xdc
-    synth_design -top spw_arty_a7100t_top -part $part -include_dirs $fcapz/rtl
-    set bit  $example_dir/spw_arty_a7100t_top_vhdl.bit
-    set trpt $example_dir/timing_vhdl.rpt
-    set urpt $example_dir/utilization_vhdl.rpt
+    synth_design -top spw_arty_a7100t_top -part $part -include_dirs $fcapz/rtl {*}$extgen
+    set bit  $example_dir/spw_arty_a7100t_top_vhdl${extsfx}.bit
+    set trpt $example_dir/timing_vhdl${extsfx}.rpt
+    set urpt $example_dir/utilization_vhdl${extsfx}.rpt
 }
 
 opt_design
