@@ -98,6 +98,36 @@ module spw_axi_top #(
     wire erresc;
     wire errcred;
 
+    initial begin
+        // Parameter-range guards mirroring the VHDL constrained generics, so
+        // invalid Verilog parameters fail with an intentional diagnostic at the
+        // wrapper level (the underlying spwstream/regs also guard these).
+        if (RXIMPL != 0 && RXIMPL != 1) begin
+            $display("spw_axi_top: RXIMPL must be 0 (generic) or 1 (fast), got %0d", RXIMPL);
+            $finish;
+        end
+        if (TXIMPL != 0 && TXIMPL != 1) begin
+            $display("spw_axi_top: TXIMPL must be 0 (generic) or 1 (fast), got %0d", TXIMPL);
+            $finish;
+        end
+        if (RXCHUNK < 1 || RXCHUNK > 4) begin
+            $display("spw_axi_top: RXCHUNK must be in [1,4], got %0d", RXCHUNK);
+            $finish;
+        end
+        if (RXFIFOSIZE_BITS < 6 || RXFIFOSIZE_BITS > 14) begin
+            $display("spw_axi_top: RXFIFOSIZE_BITS must be in [6,14], got %0d", RXFIFOSIZE_BITS);
+            $finish;
+        end
+        if (TXFIFOSIZE_BITS < 2 || TXFIFOSIZE_BITS > 14) begin
+            $display("spw_axi_top: TXFIFOSIZE_BITS must be in [2,14], got %0d", TXFIFOSIZE_BITS);
+            $finish;
+        end
+        if (AXI_ADDR_WIDTH < 6) begin
+            $display("spw_axi_top: AXI_ADDR_WIDTH must be >= 6 for the register aperture, got %0d", AXI_ADDR_WIDTH);
+            $finish;
+        end
+    end
+
     spw_axi_lite_regs #(
         .ADDR_WIDTH(AXI_ADDR_WIDTH),
         .CORE_ID(CORE_ID),

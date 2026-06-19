@@ -83,6 +83,10 @@ module spwstream #(
     localparam integer STARTUP_DIVCNT_DERIVED = ((EFFECTIVE_TX_CLOCK_HZ + 5000000) / 10000000) - 1;
     localparam [7:0] STARTUP_DIVCNT =
         (DEFAULT_DIVCNT != 0) ? DEFAULT_DIVCNT : STARTUP_DIVCNT_DERIVED[7:0];
+    // Zero-padding for the 6-bit rxroom threshold. Clamped so an out-of-range
+    // RXFIFOSIZE_BITS (caught by the elaboration guard below) does not produce a
+    // negative replication count before the guard can report it.
+    localparam integer RXROOM_PAD = (RXFIFOSIZE_BITS > 6) ? (RXFIFOSIZE_BITS - 6) : 0;
 
     initial begin
         if (RESET_TIME == 0 && (RESET_TIME_DERIVED < 1 || RESET_TIME_DERIVED > 2047)) begin
@@ -108,6 +112,29 @@ module spwstream #(
             $display("spwstream: derived startup rate %0d bit/s (clk %0d / %0d) is outside the SpaceWire 10 Mbit/s +/-10%% startup window; choose a clock with a compliant integer divider",
                      EFFECTIVE_TX_CLOCK_HZ / (STARTUP_DIVCNT_DERIVED + 1),
                      EFFECTIVE_TX_CLOCK_HZ, STARTUP_DIVCNT_DERIVED + 1);
+            $finish;
+        end
+        // Parameter-range guards mirroring the VHDL constrained generics, so
+        // invalid Verilog parameters fail with an intentional diagnostic instead
+        // of an obscure expression error or a silently wrong implementation.
+        if (RXIMPL != 0 && RXIMPL != 1) begin
+            $display("spwstream: RXIMPL must be 0 (generic) or 1 (fast), got %0d", RXIMPL);
+            $finish;
+        end
+        if (TXIMPL != 0 && TXIMPL != 1) begin
+            $display("spwstream: TXIMPL must be 0 (generic) or 1 (fast), got %0d", TXIMPL);
+            $finish;
+        end
+        if (RXCHUNK < 1 || RXCHUNK > 4) begin
+            $display("spwstream: RXCHUNK must be in [1,4], got %0d", RXCHUNK);
+            $finish;
+        end
+        if (RXFIFOSIZE_BITS < 6 || RXFIFOSIZE_BITS > 14) begin
+            $display("spwstream: RXFIFOSIZE_BITS must be in [6,14], got %0d", RXFIFOSIZE_BITS);
+            $finish;
+        end
+        if (TXFIFOSIZE_BITS < 2 || TXFIFOSIZE_BITS > 14) begin
+            $display("spwstream: TXFIFOSIZE_BITS must be in [2,14], got %0d", TXFIFOSIZE_BITS);
             $finish;
         end
     end
@@ -428,7 +455,7 @@ module spwstream #(
         v_tmprxroom = rxfifo_raddr - v_rxfifo_waddr - {{(RXFIFOSIZE_BITS-1){1'b0}}, 1'b1};
         v_rxfull = (v_tmprxroom == {RXFIFOSIZE_BITS{1'b0}});
         v_rxhalff = !v_tmprxroom[RXFIFOSIZE_BITS-1];
-        if (v_tmprxroom > {{(RXFIFOSIZE_BITS-6){1'b0}}, 6'd63}) begin
+        if (v_tmprxroom > {{RXROOM_PAD{1'b0}}, 6'd63}) begin
             v_rxroom = 6'b111111;
         end else begin
             v_rxroom = v_tmprxroom[5:0];

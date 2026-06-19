@@ -103,6 +103,34 @@ module streamtest #(
     assign dataerror = dataerror_r;
     assign tickerror = tickerror_r;
 
+    initial begin
+        // Parameter-range guards mirroring the VHDL constrained generics.
+        if (RXIMPL != 0 && RXIMPL != 1) begin
+            $display("streamtest: RXIMPL must be 0 (generic) or 1 (fast), got %0d", RXIMPL);
+            $finish;
+        end
+        if (TXIMPL != 0 && TXIMPL != 1) begin
+            $display("streamtest: TXIMPL must be 0 (generic) or 1 (fast), got %0d", TXIMPL);
+            $finish;
+        end
+        if (RXCHUNK < 1 || RXCHUNK > 4) begin
+            $display("streamtest: RXCHUNK must be in [1,4], got %0d", RXCHUNK);
+            $finish;
+        end
+        if (RXFIFOSIZE_BITS < 6 || RXFIFOSIZE_BITS > 14) begin
+            $display("streamtest: RXFIFOSIZE_BITS must be in [6,14], got %0d", RXFIFOSIZE_BITS);
+            $finish;
+        end
+        if (TXFIFOSIZE_BITS < 2 || TXFIFOSIZE_BITS > 14) begin
+            $display("streamtest: TXFIFOSIZE_BITS must be in [2,14], got %0d", TXFIFOSIZE_BITS);
+            $finish;
+        end
+        if (TICKDIV < 12 || TICKDIV > 24) begin
+            $display("streamtest: TICKDIV must be in [12,24], got %0d", TICKDIV);
+            $finish;
+        end
+    end
+
     spwstream #(
         .RESET_TIME(RESET_TIME),
         .DISCONNECT_TIME(DISCONNECT_TIME),
