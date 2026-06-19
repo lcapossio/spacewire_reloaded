@@ -31,6 +31,12 @@ The SpaceWire transmit pins are looped back to the receive pins:
   **JA**; fit two straight jumpers `JA1->JA7` (Dout->Din) and `JA4->JA10`
   (Sout->Sin). Data and Strobe sit in separate columns to limit crosstalk, and
   the inputs have pulldowns so a removed/absent jumper reads a clean disconnect.
+  Hardware-verified over real jumpers at 10 Mbit/s and 25 Mbit/s (millions of
+  back-to-back PRBS packets, zero errors); at 100 Mbit/s the single-ended jumper
+  hits `errpar` (signal integrity) while the identical 100 Mbit/s *internal*
+  build is clean -- single-ended tops out below 100 Mbit/s, so full-rate
+  SpaceWire needs a differential (LVDS) link. Use `--divcnt` to pick a rate
+  (fast build: `--divcnt 3` = 25 Mbit/s, `1` = 50 Mbit/s, `0` = 100 Mbit/s).
 
 fpgacapZero debug cores give three host verification surfaces: the EJTAG-AXI
 bridge (USER4) for register/data access, two ELAs (USER1) capturing the

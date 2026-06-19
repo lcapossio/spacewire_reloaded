@@ -78,13 +78,23 @@ if {[info exists ::env(SPW_EXTLOOP)] && $::env(SPW_EXTLOOP) eq "1"} {
     set extsfx "_ext"
 }
 
+# Optional link-rate override (LINK_TXDIVCNT): link rate = txclk/(divcnt+1).
+set divsfx ""
+set div_override ""
+if {[info exists ::env(SPW_TXDIVCNT)]} {
+    set div_override $::env(SPW_TXDIVCNT)
+    set divsfx "_div$div_override"
+}
+
 if {$fast} {
     # Fast build: MMCM rxclk/txclk in their own domains -> exercises the
     # gray-coded rxclk->clk and clk<->txclk crossings and constraints/spw_cdc.xdc.
+    set fastdiv 0
+    if {$div_override ne ""} { set fastdiv $div_override }
     read_xdc $example_dir/arty_a7100t_fast.xdc
     synth_design -top spw_arty_a7100t_top -part $part -include_dirs $fcapz/rtl \
         -generic RXIMPL=1 -generic TXIMPL=1 -generic RXCHUNK=2 -generic USE_MMCM=1 \
-        -generic LINK_TXDIVCNT=0 {*}$extgen
+        -generic LINK_TXDIVCNT=$fastdiv {*}$extgen
 
     # Post-synthesis: the MMCM generated clocks and syncdff cells now exist.
     set rxc [get_clocks -of_objects [get_pins -hierarchical -filter {NAME =~ *u_mmcm/CLKOUT0}]]
@@ -93,15 +103,17 @@ if {$fast} {
         -group [get_clocks board_clk] -group $rxc -group $txc \
         -group [get_clocks tck_bscan]
     read_xdc $root/constraints/spw_cdc.xdc
-    set bit  $example_dir/spw_arty_a7100t_top_fast${extsfx}.bit
-    set trpt $example_dir/timing_verilog_fast${extsfx}.rpt
-    set urpt $example_dir/utilization_verilog_fast${extsfx}.rpt
+    set bit  $example_dir/spw_arty_a7100t_top_fast${extsfx}${divsfx}.bit
+    set trpt $example_dir/timing_verilog_fast${extsfx}${divsfx}.rpt
+    set urpt $example_dir/utilization_verilog_fast${extsfx}${divsfx}.rpt
 } else {
+    set gengen [list]
+    if {$div_override ne ""} { set gengen [list -generic LINK_TXDIVCNT=$div_override] }
     read_xdc $example_dir/arty_a7100t.xdc
-    synth_design -top spw_arty_a7100t_top -part $part -include_dirs $fcapz/rtl {*}$extgen
-    set bit  $example_dir/spw_arty_a7100t_top${extsfx}.bit
-    set trpt $example_dir/timing_verilog${extsfx}.rpt
-    set urpt $example_dir/utilization_verilog${extsfx}.rpt
+    synth_design -top spw_arty_a7100t_top -part $part -include_dirs $fcapz/rtl {*}$extgen {*}$gengen
+    set bit  $example_dir/spw_arty_a7100t_top${extsfx}${divsfx}.bit
+    set trpt $example_dir/timing_verilog${extsfx}${divsfx}.rpt
+    set urpt $example_dir/utilization_verilog${extsfx}${divsfx}.rpt
 }
 
 opt_design

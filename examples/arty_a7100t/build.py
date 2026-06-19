@@ -58,6 +58,9 @@ def main() -> int:
     parser.add_argument("--external", action="store_true",
                         help="external Pmod loopback (LOOPBACK_INTERNAL=0): D/S leave the "
                              "FPGA on Pmod JA; jumper JA1->JA7 and JA4->JA10")
+    parser.add_argument("--divcnt", type=int, default=None,
+                        help="override LINK_TXDIVCNT (link rate = txclk/(divcnt+1)); "
+                             "e.g. fast build --divcnt 3 = 25 Mbit/s")
     args = parser.parse_args()
 
     if not (SUBMODULE / "rtl").is_dir():
@@ -70,7 +73,8 @@ def main() -> int:
     log_dir = Path(args.log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     tcl = TCL[args.hdl]
-    suffix = ("_fast" if args.fast else "") + ("_ext" if args.external else "")
+    suffix = (("_fast" if args.fast else "") + ("_ext" if args.external else "")
+              + (f"_div{args.divcnt}" if args.divcnt is not None else ""))
     base = BITFILE[args.hdl].stem  # spw_arty_a7100t_top[_vhdl]
     bit = HERE / f"{base}{suffix}.bit"
 
@@ -79,6 +83,8 @@ def main() -> int:
         env["SPW_FAST"] = "1"
     if args.external:
         env["SPW_EXTLOOP"] = "1"
+    if args.divcnt is not None:
+        env["SPW_TXDIVCNT"] = str(args.divcnt)
 
     # Remove a stale bitstream so a failed Vivado run can't masquerade as success
     # (the bit-exists check below would otherwise pass on the previous build).
