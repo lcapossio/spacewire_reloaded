@@ -153,6 +153,14 @@ module spw_axi_lite_regs #(
     assign write_in_range = ((write_addr >> 6) == 0);
     assign read_in_range = ((s_axi_araddr >> 6) == 0);
 
+    initial begin
+        // The 64-byte register aperture needs at least address bits [5:0].
+        if (ADDR_WIDTH < 6) begin
+            $display("spw_axi_lite_regs: ADDR_WIDTH must be >= 6 for the 64-byte register aperture");
+            $finish;
+        end
+    end
+
     function [31:0] apply_wstrb;
         input [31:0] old_value;
         input [31:0] new_value;

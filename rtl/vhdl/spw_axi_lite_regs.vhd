@@ -137,10 +137,16 @@ architecture rtl of spw_axi_lite_regs is
 
     -- The register file occupies the low 64-byte (16-word) aperture. Any access
     -- with an address bit above [5] set is unmapped: it must read as zero and
-    -- ignore writes, not alias the low bank.
+    -- ignore writes, not alias the low bank. The upper bits are tested directly
+    -- (not via to_integer, which would overflow the 32-bit VHDL integer range for
+    -- wide AXI address widths when software probes a high address).
     function addr_in_range(addr: std_logic_vector) return boolean is
     begin
-        return to_integer(unsigned(addr)) < 64;
+        if addr'length <= 6 then
+            return true;
+        else
+            return unsigned(addr(addr'high downto 6)) = 0;
+        end if;
     end function;
 
     function status_word(
@@ -184,6 +190,11 @@ architecture rtl of spw_axi_lite_regs is
     end function;
 
 begin
+
+    -- The 64-byte register aperture needs at least address bits [5:0].
+    assert ADDR_WIDTH >= 6
+        report "spw_axi_lite_regs: ADDR_WIDTH must be >= 6 for the 64-byte register aperture"
+        severity failure;
 
     awready_s <= (not aw_holding_r) and (not bvalid_r);
     wready_s  <= (not w_holding_r) and (not bvalid_r);

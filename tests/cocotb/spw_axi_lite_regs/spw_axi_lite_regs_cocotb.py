@@ -247,6 +247,38 @@ async def axi_lite_upper_address_bits_do_not_alias(dut):
 
 
 @cocotb.test()
+async def axi_lite_high_address_reads_zero_on_wide_aperture(dut):
+    """Bug 21 robustness follow-up: on a wide AXI-Lite address bus, probing a
+    high address (top bit set) must read as zero / ignore writes without
+    overflowing the range check. The earlier VHDL guard used
+    to_integer(unsigned(addr)) < 64, which overflows the 32-bit VHDL integer for
+    addresses >= 0x8000_0000. Only meaningful when ADDR_WIDTH is wide; a no-op on
+    the default 8-bit build."""
+    if len(dut.s_axi_araddr) < 32:
+        return
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset_dut(dut)
+    start_common_assertions(dut)
+    axil = make_axil_master(dut)
+
+    # Genuine low-bank register still works.
+    assert await axil_read_dword(axil, REG_CORE_ID) == 0x53505752
+
+    # High addresses (bits far above the 64-byte aperture) must read zero and
+    # must not crash the range check.
+    for addr in (0x80000000, 0xC0000040, 0xFFFFFFFC, 0x00010000):
+        assert await axil_read_dword(axil, addr) == 0, f"high addr 0x{addr:08x} did not read zero"
+
+    # A high-address write must be ignored (0x...08 would alias CONTROL on a
+    # naive low-bits-only decode).
+    await axil_write_dword(axil, 0x80000008, 0x0000000F)
+    assert await axil_read_dword(axil, REG_CONTROL) == 0x00000000
+    assert value(dut.autostart) == 0
+    assert value(dut.linkstart) == 0
+    assert value(dut.linkdis) == 0
+
+
+@cocotb.test()
 async def axi_lite_timecodes_errors_and_irq_are_sticky_until_cleared(dut):
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     await reset_dut(dut)
