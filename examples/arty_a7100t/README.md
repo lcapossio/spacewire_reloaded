@@ -84,7 +84,7 @@ All four lit = link up and loopback self-check passed. `btn[0]` resets the desig
 | `0x20` | `RXDATA` | RO | data-mover pop: `[7:0]` data `[8]` tlast `[9]` tuser `[31]` valid |
 | `0x24`/`0x28`/`0x2C` | `TXCOUNT`/`RXCOUNT`/`ERRCOUNT` | RO | self-check N-Char counts and PRBS/framing mismatches |
 | `0x30` | `PKTCOUNT` | RO | self-check packets received (EOP count) |
-| `0x34` | `ERRINJ` | RW | fault injection on the internal loopback line: `[0]` freeze (force `di=si=0`, a disconnect) `[1]` invert `do` (corrupts the Data line, a parity/link error). Clear to `0` then pulse `CTRL` soft_reset to recover |
+| `0x34` | `ERRINJ` | RW | transmit-side fault injection (applied to the outgoing D/S before the pins, so it affects internal **and** external loopback): `[0]` freeze (hold D/S static, a disconnect) `[1]` invert outgoing `D` (corrupts the Data line, a parity/link error). Clear to `0` then pulse `CTRL` soft_reset to recover |
 | `0x38` | `TIMECODE` | RW | SpaceWire TimeCode loopback. Write `[7:0]` = time-code (`[7:6]` control + `[5:0]` time): the engine clears the received-valid then sends it over the link. Read `[5:0]` = last received time, `[7:6]` = control, `[31]` = valid (mirrors the core TIMECODE_RX, refreshed every status poll) |
 
 ## Build
@@ -154,12 +154,14 @@ python examples/arty_a7100t/host_loopback_test.py \
 
 ### Error injection and recovery
 
-`--inject` drives the `ERRINJ` register to corrupt the internal loopback line
-and confirms the SpaceWire link-error detection and recovery. It freezes the
-`di`/`si` lines (a disconnect, which sets the sticky `errdisc` and drops the
-link), then inverts the `do` line (a Data-line corruption, which raises a link
-error), and after each fault clears `ERRINJ` and pulses soft_reset to bring the
-link back up with the sticky error bits cleared:
+`--inject` drives the `ERRINJ` register to corrupt the outgoing D/S on the
+transmit side (before the pins), so it works on internal **and** external
+loopback, and confirms the SpaceWire link-error detection and recovery. It
+freezes the outgoing D/S (a disconnect, which sets the sticky `errdisc` and drops
+the link), then inverts the outgoing `D` (a Data-line corruption, which raises a
+link error), and after each fault clears `ERRINJ` and pulses soft_reset to bring
+the link back up with the sticky error bits cleared. On external loopback the
+injected fault genuinely leaves the FPGA on the wire:
 
 ```sh
 python examples/arty_a7100t/host_loopback_test.py \

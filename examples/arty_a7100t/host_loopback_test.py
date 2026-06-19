@@ -249,7 +249,8 @@ def run_stress(args) -> int:
 
 
 def run_inject(args) -> int:
-    """Inject errors on the internal loopback line and confirm the SpaceWire
+    """Inject errors on the outgoing D/S line (transmit side, before the pins, so
+    it works on internal and external loopback) and confirm the SpaceWire
     link-error detection (sticky error bits + link drop) and recovery."""
     from fcapz.ejtagaxi import EjtagAxiController
 
@@ -273,16 +274,18 @@ def run_inject(args) -> int:
     def bits(st):
         return " ".join(n for m, n in names.items() if st & m) or "none"
 
-    # 1) freeze the loopback D/S line -> disconnect
+    # 1) freeze the outgoing D/S line -> the line stops. The receiver flags a
+    # link error -- errdisc if it simply goes quiet, or errpar if the freeze
+    # truncates a character mid-flight -- and drops the link.
     axi.axi_write(ERRINJ, INJ_FREEZE)
-    st = poll(lambda: axi.axi_read(STATUS), ERR_DISC)
+    st = poll(lambda: axi.axi_read(STATUS), ERR_ANY)
     poll_clear(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
     print(f"  freeze  -> STATUS={st:#010x} errors=[{bits(st)}], link dropped")
-    expect(st & ERR_DISC, "disconnect injection sets errdisc and drops the link")
+    expect(st & ERR_ANY, "freeze injection sets a link error and drops the link")
     recover()
-    expect(True, "link recovered and sticky errors cleared after disconnect")
+    expect(True, "link recovered and sticky errors cleared after freeze")
 
-    # 2) invert the looped-back D line -> a link error
+    # 2) invert the outgoing D line -> a link error
     axi.axi_write(ERRINJ, INJ_INVERT)
     st = poll(lambda: axi.axi_read(STATUS), ERR_ANY)
     poll_clear(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
@@ -292,7 +295,7 @@ def run_inject(args) -> int:
     expect(True, "link recovered and sticky errors cleared after corruption")
 
     axi.axi_write(CTRL, 0x0)
-    print("\nRESULT: PASS - internal-loopback error injection + recovery verified")
+    print("\nRESULT: PASS - transmit-side error injection + recovery verified")
     return 0
 
 
@@ -429,8 +432,8 @@ def main() -> int:
     p.add_argument("--poll-interval", type=float, default=10.0,
                    help="seconds between counter polls during --stress")
     p.add_argument("--inject", action="store_true",
-                   help="inject errors on the internal loopback line and check "
-                        "link-error detection + recovery")
+                   help="inject errors on the outgoing D/S line (transmit side; "
+                        "internal or external loopback) and check detection + recovery")
     p.add_argument("--timecode", action="store_true",
                    help="send SpaceWire TimeCodes and check they loop back")
     p.add_argument("--eep", action="store_true",

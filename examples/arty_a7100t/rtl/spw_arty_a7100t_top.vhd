@@ -199,7 +199,7 @@ architecture rtl of spw_arty_a7100t_top is
 
     signal link_running, selftest_pass, selftest_done, bringup_done : std_logic;
     signal inj_freeze, inj_invert : std_logic;
-    signal spw_di_int, spw_si_int : std_logic;
+    signal spw_do_tx, spw_so_tx : std_logic;  -- transmit signals after error injection
 
     -- debug
     signal ela_trig_in  : std_logic_vector(1 downto 0);
@@ -250,14 +250,17 @@ begin
     end process;
     rst <= por_sr(3) or btn0_sync or (not mmcm_locked);
 
-    -- ---- loopback select ----
-    -- internal loopback with optional host-controlled error injection
-    spw_di_int <= '0' when inj_freeze = '1' else (spw_do xor inj_invert);
-    spw_si_int <= '0' when inj_freeze = '1' else spw_so;
-    spw_di     <= spw_di_int when LOOPBACK_INTERNAL /= 0 else spw_di_pin;
-    spw_si     <= spw_si_int when LOOPBACK_INTERNAL /= 0 else spw_si_pin;
-    spw_do_pin <= spw_do;
-    spw_so_pin <= spw_so;
+    -- ---- error injection on the transmit side (before pins + loopback) ----
+    -- so an injected fault leaves the FPGA on the wire and is seen by the
+    -- receiver on both internal and external loopback:
+    --   inj_freeze -> hold D/S static (disconnect); inj_invert -> invert out D.
+    spw_do_tx  <= '0' when inj_freeze = '1' else (spw_do xor inj_invert);
+    spw_so_tx  <= '0' when inj_freeze = '1' else spw_so;
+    -- loopback select: internal ties do->di inside the FPGA; external via pins.
+    spw_di     <= spw_do_tx when LOOPBACK_INTERNAL /= 0 else spw_di_pin;
+    spw_si     <= spw_so_tx when LOOPBACK_INTERNAL /= 0 else spw_si_pin;
+    spw_do_pin <= spw_do_tx;  -- injected TX signal goes out the wire
+    spw_so_pin <= spw_so_tx;
 
     u_spw: entity work.spw_axi_top
         generic map (

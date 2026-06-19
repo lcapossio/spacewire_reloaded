@@ -91,8 +91,8 @@ entity spw_loopback_axi is
         bringup_done:  out std_logic;
 
         -- Internal-loopback error injection (to the top's loopback mux)
-        inj_freeze:    out std_logic;   -- hold looped-back D/S static -> disconnect
-        inj_invert:    out std_logic    -- invert looped-back D -> parity/char error
+        inj_freeze:    out std_logic;   -- hold outgoing D/S static -> disconnect
+        inj_invert:    out std_logic    -- invert outgoing D -> parity/char error
     );
 end entity spw_loopback_axi;
 

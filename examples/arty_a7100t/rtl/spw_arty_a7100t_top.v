@@ -100,17 +100,21 @@ module spw_arty_a7100t_top #(
     // ---- SpaceWire link signals ----
     wire spw_do, spw_so, spw_di, spw_si;
 
-    // Loopback select: internal ties do->di / so->si inside the FPGA.
-    // Internal loopback with optional host-controlled error injection:
-    //   inj_freeze -> hold D/S static (disconnect); inj_invert -> corrupt D.
-    assign spw_di     = (LOOPBACK_INTERNAL != 0)
-                          ? (inj_freeze ? 1'b0 : (spw_do ^ inj_invert))
-                          : spw_di_pin;
-    assign spw_si     = (LOOPBACK_INTERNAL != 0)
-                          ? (inj_freeze ? 1'b0 : spw_so)
-                          : spw_si_pin;
-    assign spw_do_pin = spw_do;   // always driven so external wiring/scope works
-    assign spw_so_pin = spw_so;
+    // Host-controlled error injection on the TRANSMIT side, before the signals
+    // reach the pins and the internal loopback, so an injected fault actually
+    // leaves the FPGA on the wire and the receiver detects it on both internal
+    // and external loopback:
+    //   inj_freeze -> hold D/S static (the line stops -> disconnect/errdisc);
+    //   inj_invert -> invert the outgoing D (corrupts the line -> parity error).
+    wire spw_do_tx = inj_freeze ? 1'b0 : (spw_do ^ inj_invert);
+    wire spw_so_tx = inj_freeze ? 1'b0 : spw_so;
+
+    // Loopback select: internal ties do->di / so->si inside the FPGA; external
+    // routes them through the Pmod pins/wire.
+    assign spw_di     = (LOOPBACK_INTERNAL != 0) ? spw_do_tx : spw_di_pin;
+    assign spw_si     = (LOOPBACK_INTERNAL != 0) ? spw_so_tx : spw_si_pin;
+    assign spw_do_pin = spw_do_tx;  // injected TX signal goes out the wire/scope
+    assign spw_so_pin = spw_so_tx;
 
     // ---- AXI4 bridge <-> engine ----
     wire [31:0] ax_awaddr, ax_wdata, ax_araddr, ax_rdata;

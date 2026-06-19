@@ -281,12 +281,13 @@ async def test_error_injection(dut):
         await poll_until(dut, STATUS, ST_LINK_RUNNING)        # link back up
         await poll_until_clear(dut, STATUS, ERR_ANY)          # sticky errors cleared
 
-    # 1) freeze the D/S line -> disconnect (errdisc) + link drop
+    # 1) freeze the D/S line -> the line stops; the receiver flags a link error
+    # (errdisc if it goes quiet, errpar if a char is truncated mid-flight) + drop
     await axi_write(dut, ERRINJ, INJ_FREEZE)
-    st = await poll_until(dut, STATUS, ERR_DISC)
-    assert st & ERR_DISC, f"expected errdisc, STATUS={st:#x}"
+    st = await poll_until(dut, STATUS, ERR_ANY)
+    assert st & ERR_ANY, f"expected a link error, STATUS={st:#x}"
     await poll_until_clear(dut, STATUS, ST_LINK_RUNNING)
-    dut._log.info(f"disconnect inject: STATUS={st:#010x} (errdisc), link dropped")
+    dut._log.info(f"freeze inject: STATUS={st:#010x} (err {(st>>8)&0xF:#x}), link dropped")
     await recover()
 
     # 2) invert the looped-back D line -> a link error + link drop

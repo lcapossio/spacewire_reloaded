@@ -37,9 +37,11 @@
  *   0x28 RXCOUNT     RO  N-Chars received
  *   0x2C ERRCOUNT    RO  self-check PRBS/framing mismatches
  *   0x30 PKTCOUNT    RO  self-check packets received (EOP count)
- *   0x34 ERRINJ      RW  internal-loopback error injection:
+ *   0x34 ERRINJ      RW  transmit-side error injection (the top applies these to
+ *                        the outgoing D/S before the pins, so it works on both
+ *                        internal and external loopback):
  *                        [0] freeze (hold D/S static -> disconnect/errdisc)
- *                        [1] invert (invert looped-back D -> parity/char error)
+ *                        [1] invert (invert outgoing D -> parity/char error)
  *   0x38 TIMECODE    RW  SpaceWire TimeCode loopback:
  *                        write [7:0]=time-code (ctrl[7:6]+time[5:0]) -> the engine
  *                          clears the received-timecode valid then sends this
@@ -138,8 +140,8 @@ module spw_loopback_axi #(
     output wire        bringup_done,
 
     // ---- Internal-loopback error injection (to the top's loopback mux) ----
-    output wire        inj_freeze,   // hold looped-back D/S static -> disconnect
-    output wire        inj_invert    // invert looped-back D -> parity/char error
+    output wire        inj_freeze,   // hold outgoing D/S static -> disconnect
+    output wire        inj_invert    // invert outgoing D -> parity/char error
 );
 
     // spw_axi_lite_regs register byte offsets (see rtl/.../spw_axi_lite_regs).
