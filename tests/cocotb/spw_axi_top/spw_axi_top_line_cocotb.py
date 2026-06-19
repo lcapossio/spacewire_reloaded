@@ -644,3 +644,61 @@ async def axi_top_external_line_early_fct_aborts_bringup(dut):
         await assert_never_runs(axil, dut, cycles=6000)
     finally:
         fct_task.kill()
+
+
+@cocotb.test()
+async def axi_top_external_line_early_null_in_errorwait_connects(dut):
+    """A peer that powers up first legitimately streams NULLs while this node is
+    still in its post-error "exchange of silence" (ErrorReset/ErrorWait). The
+    local transmitter stays silent during that window, but the *receiver* is
+    enabled throughout ErrorWait, so those early NULLs are tolerated -- they must
+    NOT be treated as an error (only FCT/N-Char/Time-Code abort ErrorWait/Ready)
+    -- and they latch gotNULL. The link must therefore advance Started ->
+    Connecting on that early-latched NULL and reach Run once the peer follows with
+    a genuine FCT.
+
+    This is the standard-conformant behaviour and the direct counter-evidence for
+    BUGS.md "Bug 19": an early NULL during ErrorWait is expected, not a fault. The
+    distinction from the other bring-up tests is that NULLs begin flowing *before*
+    Started, i.e. during the silence window."""
+    axil, line = await begin_external_bringup(dut)
+    # NULLs flow from ErrorReset onward; they begin landing the moment the link
+    # enters ErrorWait (receiver enabled). Drive until Connecting is reached,
+    # which can only happen if the (early) NULL was latched and tolerated.
+    for _ in range(400):
+        await line.null()
+        if (await read_status(axil)) & (1 << 1):  # Connecting
+            break
+    else:
+        raise AssertionError("early NULLs during ErrorWait did not reach Connecting")
+    # A genuine FCT now completes the handshake into Run.
+    for _ in range(64):
+        await line.fct()
+        if (await read_status(axil)) & (1 << 2):  # Run
+            break
+    await wait_running(axil, dut.clk)
+
+
+@cocotb.test()
+async def axi_top_external_line_early_null_alone_never_runs(dut):
+    """Safety counterpart to the test above (and the real answer to BUGS.md
+    "Bug 19"): an early NULL latched during ErrorWait lets the link advance to
+    Connecting, but it can NOT by itself carry the link into Run. Reaching Run
+    still requires a fresh FCT from a genuinely live peer (gotFCT is a single
+    cycle pulse, never latched). If the peer that emitted the early NULL then goes
+    silent, the link must self-correct via the Connecting timeout / disconnect and
+    never reach Run -- so the latched NULL cannot fabricate a spurious link."""
+    axil, line = await begin_external_bringup(dut)
+    # Drive NULLs (landing during ErrorWait) until the link reaches Connecting,
+    # proving the early NULL was consumed to advance past Started.
+    reached_connecting = False
+    for _ in range(400):
+        await line.null()
+        if (await read_status(axil)) & (1 << 1):  # Connecting
+            reached_connecting = True
+            break
+    assert reached_connecting, "early NULL did not advance the link to Connecting"
+    # The peer now falls silent: no FCT will ever follow. The link must drop back
+    # and never reach Run on the strength of the already-latched NULL alone.
+    line.reset()
+    await assert_never_runs(axil, dut, cycles=6000)
