@@ -207,6 +207,12 @@ architecture spwstream_arch of spwstream is
     constant default_divcnt:    std_logic_vector(7 downto 0) :=
         std_logic_vector(to_unsigned(integer(floor((effective_txclk_freq + 5.0e6) / 10.0e6) - 1.0), 8));
 
+    -- The SpaceWire standard requires the link-handshake signalling rate to be
+    -- 10 Mbit/s +/- 10% ([9, 11] Mbit/s). Reject clocks that have no integer
+    -- divider inside that window (e.g. 25 MHz -> 8.33 Mbit/s); see assertion below.
+    constant startup_divp1:     integer := to_integer(unsigned(default_divcnt)) + 1;
+    constant effective_txclk_int: integer := integer(effective_txclk_freq);
+
     -- Registers.
     type regs_type is record
         -- packet state
@@ -274,6 +280,15 @@ architecture spwstream_arch of spwstream is
     signal s_txfifo_wdata:  std_logic_vector(8 downto 0);
 
 begin
+
+    -- Reject a clock whose auto-derived startup divider lands outside the
+    -- SpaceWire 10 Mbit/s +/-10% handshake window (e.g. 25 MHz -> 8.33 Mbit/s).
+    -- Static condition: evaluated at elaboration / time 0.
+    assert (effective_txclk_int >= 9000000 * startup_divp1) and
+           (effective_txclk_int <= 11000000 * startup_divp1)
+        report "spwstream: derived startup rate is outside the SpaceWire 10 Mbit/s " &
+               "+/-10% startup window; choose a clock with a compliant integer divider"
+        severity failure;
 
     -- Instantiate link controller.
     link_inst: spwlink

@@ -102,6 +102,11 @@ module spw_axi_lite_regs #(
     wire [31:0] write_data;
     wire [3:0] write_strb;
     wire [3:0] error_inputs;
+    // The register file occupies the low 64-byte (16-word) aperture. Any access
+    // with an address bit above [5] set is unmapped: it must read as zero and
+    // ignore writes, not alias the low bank.
+    wire write_in_range;
+    wire read_in_range;
 
     assign s_axi_awready = !aw_holding_r && !bvalid_r;
     assign s_axi_wready = !w_holding_r && !bvalid_r;
@@ -145,6 +150,8 @@ module spw_axi_lite_regs #(
     assign write_data = w_holding_r ? wdata_r : s_axi_wdata;
     assign write_strb = w_holding_r ? wstrb_r : s_axi_wstrb;
     assign write_index = write_addr[5:2];
+    assign write_in_range = ((write_addr >> 6) == 0);
+    assign read_in_range = ((s_axi_araddr >> 6) == 0);
 
     function [31:0] apply_wstrb;
         input [31:0] old_value;
@@ -207,6 +214,7 @@ module spw_axi_lite_regs #(
             end
 
             if (write_fire) begin
+                if (write_in_range) begin
                 case (write_index)
                     REG_CONTROL: begin
                         control_r <= apply_wstrb(control_r, write_data, write_strb);
@@ -249,6 +257,7 @@ module spw_axi_lite_regs #(
                     default: begin
                     end
                 endcase
+                end
                 aw_holding_r <= 1'b0;
                 w_holding_r <= 1'b0;
                 bvalid_r <= 1'b1;
@@ -259,6 +268,7 @@ module spw_axi_lite_regs #(
             end
 
             if (s_axi_arready && s_axi_arvalid) begin
+                if (read_in_range) begin
                 case (s_axi_araddr[5:2])
                     REG_CORE_ID:     rdata_r <= CORE_ID;
                     REG_VERSION:     rdata_r <= VERSION;
@@ -271,6 +281,9 @@ module spw_axi_lite_regs #(
                     REG_IRQ_STATUS:  rdata_r <= irq_status;
                     default:         rdata_r <= 32'd0;
                 endcase
+                end else begin
+                    rdata_r <= 32'd0;
+                end
                 rvalid_r <= 1'b1;
             end
         end

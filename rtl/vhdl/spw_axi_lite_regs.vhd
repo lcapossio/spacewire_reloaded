@@ -135,6 +135,14 @@ architecture rtl of spw_axi_lite_regs is
         return to_integer(unsigned(addr(5 downto 2)));
     end function;
 
+    -- The register file occupies the low 64-byte (16-word) aperture. Any access
+    -- with an address bit above [5] set is unmapped: it must read as zero and
+    -- ignore writes, not alias the low bank.
+    function addr_in_range(addr: std_logic_vector) return boolean is
+    begin
+        return to_integer(unsigned(addr)) < 64;
+    end function;
+
     function status_word(
         txrdy_i:      std_logic;
         txhalff_i:    std_logic;
@@ -287,6 +295,7 @@ begin
                         write_strb := s_axi_wstrb;
                     end if;
 
+                    if addr_in_range(write_addr) then
                     case reg_index(write_addr) is
                         when REG_CONTROL =>
                             control_r <= apply_wstrb(control_r, write_data, write_strb);
@@ -322,6 +331,7 @@ begin
                         when others =>
                             null;
                     end case;
+                    end if;
 
                     aw_holding_r <= '0';
                     w_holding_r  <= '0';
@@ -334,6 +344,7 @@ begin
 
                 if arready_s = '1' and s_axi_arvalid = '1' then
                     read_data := (others => '0');
+                    if addr_in_range(s_axi_araddr) then
                     case reg_index(s_axi_araddr) is
                         when REG_CORE_ID =>
                             read_data := CORE_ID;
@@ -356,6 +367,7 @@ begin
                         when others =>
                             read_data := (others => '0');
                     end case;
+                    end if;
 
                     rdata_r  <= read_data;
                     rvalid_r <= '1';

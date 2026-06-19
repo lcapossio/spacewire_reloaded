@@ -97,6 +97,19 @@ module spwstream #(
             $display("spwstream: derived startup divider %0d is outside 8-bit range", STARTUP_DIVCNT_DERIVED);
             $finish;
         end
+        // The SpaceWire standard requires the link-handshake signalling rate to
+        // be 10 Mbit/s +/- 10% ([9, 11] Mbit/s). When the startup divider is
+        // auto-derived, reject clocks that have no integer divider inside that
+        // window (e.g. 25 MHz -> 8.33 Mbit/s). Equivalent to
+        // 9e6*(divcnt+1) <= clk <= 11e6*(divcnt+1) with no division.
+        if (DEFAULT_DIVCNT == 0 &&
+            (EFFECTIVE_TX_CLOCK_HZ < 9000000 * (STARTUP_DIVCNT_DERIVED + 1) ||
+             EFFECTIVE_TX_CLOCK_HZ > 11000000 * (STARTUP_DIVCNT_DERIVED + 1))) begin
+            $display("spwstream: derived startup rate %0d bit/s (clk %0d / %0d) is outside the SpaceWire 10 Mbit/s +/-10%% startup window; choose a clock with a compliant integer divider",
+                     EFFECTIVE_TX_CLOCK_HZ / (STARTUP_DIVCNT_DERIVED + 1),
+                     EFFECTIVE_TX_CLOCK_HZ, STARTUP_DIVCNT_DERIVED + 1);
+            $finish;
+        end
     end
 
     reg rxpacket;

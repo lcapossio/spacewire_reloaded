@@ -218,6 +218,35 @@ async def axi_lite_registers_drive_spw_controls(dut):
 
 
 @cocotb.test()
+async def axi_lite_upper_address_bits_do_not_alias(dut):
+    """Bug 21 regression: the register file is a 64-byte (16-word) aperture.
+    Accesses with any address bit above [5] set are unmapped and must read as
+    zero / ignore writes -- they must NOT alias the low register bank. Before the
+    fix, 0x40/0x80/0xC0 decoded to addr[5:2]=0 and returned CORE_ID, etc."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset_dut(dut)
+    start_common_assertions(dut)
+    axil = make_axil_master(dut)
+
+    # The genuine low-bank registers still work.
+    assert await axil_read_dword(axil, REG_CORE_ID) == 0x53505752
+    assert await axil_read_dword(axil, REG_VERSION) == 0x00010000
+
+    # Each of these would alias a defined low register if upper bits were ignored
+    # (0x40/0x80/0xC0 -> CORE_ID, +0x04 -> VERSION). They must read as zero.
+    for addr in (0x40, 0x44, 0x80, 0x84, 0xC0, 0xC4):
+        assert await axil_read_dword(axil, addr) == 0, f"aliased read at 0x{addr:02x}"
+
+    # 0x48 would alias CONTROL (index 2). A write there must be ignored, leaving
+    # the real CONTROL register (and its decoded outputs) untouched.
+    await axil_write_dword(axil, 0x48, 0x0000000F)
+    assert await axil_read_dword(axil, REG_CONTROL) == 0x00000000, "aliased write reached CONTROL"
+    assert value(dut.autostart) == 0
+    assert value(dut.linkstart) == 0
+    assert value(dut.linkdis) == 0
+
+
+@cocotb.test()
 async def axi_lite_timecodes_errors_and_irq_are_sticky_until_cleared(dut):
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     await reset_dut(dut)
