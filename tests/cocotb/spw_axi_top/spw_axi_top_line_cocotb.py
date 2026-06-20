@@ -7,7 +7,14 @@ import os
 import cocotb
 from cocotb.triggers import Edge, First, RisingEdge, Timer, with_timeout
 from cocotb.utils import get_sim_time
-from cocotbext.axi import AxiLiteBus, AxiLiteMaster, AxiStreamBus, AxiStreamSink
+from cocotbext.axi import (
+    AxiLiteBus,
+    AxiLiteMaster,
+    AxiStreamBus,
+    AxiStreamFrame,
+    AxiStreamSink,
+    AxiStreamSource,
+)
 
 
 REG_CONTROL = 0x08
@@ -585,6 +592,94 @@ async def axi_top_external_line_truncated_packet_emits_eep(dut):
     frame = await with_timeout(sink.recv(), 400, "us")
     assert last_user_bit(frame) == 1, "truncated packet must end in EEP (tuser=1)"
     await wait_not_running(axil, dut.clk)
+
+
+def nchar_frame(payload, terminator=0x00):
+    """Build an AXI-Stream frame whose last beat (TLAST) marks EOP/EEP; tuser[0]=1
+    selects EEP. Matches the loopback scoreboard's frame convention."""
+    return AxiStreamFrame(bytes([*payload, terminator]),
+                          tuser=[0] * len(payload) + [terminator & 1])
+
+
+async def soft_loopback(dut, gate):
+    """Mirror the core's transmitted D/S back onto its own receive inputs, so the
+    core talks to itself. While gate['on'] is False the receive line freezes,
+    which the core sees as a disconnect (unlike linkdis, this leaves txdiscard
+    armed). Used to drop the link mid-packet and then restore it."""
+    dut.spw_di_ext.value = int(dut.spw_do.value)
+    dut.spw_si_ext.value = int(dut.spw_so.value)
+    while True:
+        await First(Edge(dut.spw_do), Edge(dut.spw_so))
+        if gate["on"]:
+            dut.spw_di_ext.value = int(dut.spw_do.value)
+            dut.spw_si_ext.value = int(dut.spw_so.value)
+
+
+@cocotb.test()
+async def axi_top_external_line_tx_discards_tail_after_link_loss(dut):
+    """TX-side packet recovery (a STAR-Dundee packet-level requirement and the
+    counterpart to axi_top_external_line_truncated_packet_emits_eep): when the
+    link is lost while a packet is mid-transmission, the untransmitted tail must
+    be discarded through its EOP, and the NEXT packet queued afterwards must
+    transmit cleanly -- never prefixed with the stale tail.
+
+    Driven through a software loopback (the core's own TX mirrored to its RX) so
+    the link can be broken mid-packet and restored, then observed on m_axis. If
+    txdiscard did not work, the stale tail of packet A would reappear as a frame
+    ahead of packet B."""
+    sys_freq = env_float("SPW_SYS_CLOCK_FREQ", 20.0e6)
+    rx_freq = env_float("SPW_RX_CLOCK_FREQ", 20.0e6)
+    tx_freq = env_float("SPW_TX_CLOCK_FREQ", 20.0e6)
+    tx_div = env_int("SPW_TX_CLOCK_DIV", 1)
+
+    cocotb.start_soon(run_clock(dut.clk, sys_freq))
+    cocotb.start_soon(run_clock(dut.rxclk, rx_freq))
+    cocotb.start_soon(run_clock(dut.txclk, tx_freq))
+    initialize_inputs(dut)
+    await reset_dut(dut)
+
+    axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
+    source = AxiStreamSource(AxiStreamBus.from_prefix(dut, "s_axis"), dut.clk, dut.rst)
+    sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "m_axis"), dut.clk, dut.rst)
+
+    gate = {"on": True}
+    cocotb.start_soon(soft_loopback(dut, gate))
+
+    # Bring up the software-looped link.
+    await axil.write_dword(REG_TXDIVCNT, tx_div & 0xFF)
+    await axil.write_dword(REG_CONTROL, 0x00000006)  # autostart|linkstart
+    await wait_running(axil, dut.clk)
+
+    # Sanity: a normal packet round-trips through the software loopback.
+    source.send_nowait(nchar_frame([0x10, 0x11, 0x12]))
+    frame = await with_timeout(sink.recv(), 500, "us")
+    assert bytes(frame.tdata) == bytes([0x10, 0x11, 0x12, 0x00])
+
+    # Queue a long packet A, then break the link while it is still transmitting
+    # (only a fraction of 64 bytes leaves at 10 Mbit/s in ~8 us -> txpacket set,
+    # so the link loss arms txdiscard for the rest of A including its EOP).
+    source.send_nowait(nchar_frame([i & 0xFF for i in range(64)]))
+    await Timer(8, unit="us")
+    gate["on"] = False
+    await wait_not_running(axil, dut.clk)
+
+    # Discard whatever truncated part of A the RX side received before the break.
+    await Timer(40, unit="us")
+    sink.clear()
+
+    # Reconnect and resync the mirror, then send packet B.
+    gate["on"] = True
+    dut.spw_di_ext.value = int(dut.spw_do.value)
+    dut.spw_si_ext.value = int(dut.spw_so.value)
+    await wait_running(axil, dut.clk)
+
+    b = [0x80 + i for i in range(8)]
+    source.send_nowait(nchar_frame(b))
+    frame = await with_timeout(sink.recv(), 500, "us")
+    assert bytes(frame.tdata) == bytes([*b, 0x00]), (
+        f"next packet corrupted by stale TX tail: got {bytes(frame.tdata).hex()}"
+    )
+    assert last_user_bit(frame) == 0, "next packet must end in a clean EOP"
 
 
 async def begin_external_bringup(dut):
