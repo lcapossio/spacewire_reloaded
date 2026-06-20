@@ -25,7 +25,13 @@ module spwstream #(
     parameter        TXIMPL = 0,
     parameter        RXCHUNK = 1,
     parameter        RXFIFOSIZE_BITS = 11,
-    parameter        TXFIFOSIZE_BITS = 11
+    parameter        TXFIFOSIZE_BITS = 11,
+    // Strict TimeCode reception. When 0 (default) the core is a transparent
+    // TimeCode pipe: every received TimeCode pulses tick_out. When 1, tick_out
+    // pulses only for an in-sequence TimeCode (count == previous + 1 mod 64);
+    // out-of-sequence values still update the local count but do not pulse
+    // tick_out (per the SpaceWire time-code / lost-time-code rules).
+    parameter        STRICT_TIMECODES = 0
 ) (
     input  wire       clk,
     input  wire       rxclk,
@@ -154,6 +160,7 @@ module spwstream #(
     reg txfull;
     reg txhalff_r;
     reg [5:0] rxroom;
+    reg [5:0] last_time;
 
     reg v_rxpacket;
     reg v_rxeep;
@@ -170,6 +177,7 @@ module spwstream #(
     reg v_txfull;
     reg v_txhalff;
     reg [5:0] v_rxroom;
+    reg [5:0] v_last_time;
     reg [RXFIFOSIZE_BITS-1:0] v_tmprxroom;
     reg [TXFIFOSIZE_BITS-1:0] v_tmptxroom;
 
@@ -428,6 +436,7 @@ module spwstream #(
         v_txfull = txfull;
         v_txhalff = txhalff_r;
         v_rxroom = rxroom;
+        v_last_time = last_time;
         v_tmprxroom = {RXFIFOSIZE_BITS{1'b0}};
         v_tmptxroom = {TXFIFOSIZE_BITS{1'b0}};
 
@@ -510,7 +519,19 @@ module spwstream #(
 
         txrdy = !txfull;
         txhalff = txhalff_r;
-        tick_out = linko_tick_out;
+        // Strict TimeCode filter: a received TimeCode always updates the local
+        // count, but in strict mode only an in-sequence value (previous+1 mod 64)
+        // pulses tick_out. The comparison uses the registered last_time, so
+        // tick_out stays combinational as in the transparent (default) mode.
+        if (linko_tick_out) begin
+            v_last_time = linko_time_out;
+        end
+        if (STRICT_TIMECODES != 0) begin
+            tick_out = linko_tick_out &&
+                       (linko_time_out == ((last_time + 6'd1) & 6'h3f));
+        end else begin
+            tick_out = linko_tick_out;
+        end
         ctrl_out = linko_ctrl_out;
         time_out = linko_time_out;
         rxvalid = rxfifo_rvalid;
@@ -536,6 +557,7 @@ module spwstream #(
             v_txfifo_waddr = {TXFIFOSIZE_BITS{1'b0}};
             v_rxfifo_rvalid = 1'b0;
             v_txfifo_rvalid = 1'b0;
+            v_last_time = 6'h3f;
         end
     end
 
@@ -555,6 +577,7 @@ module spwstream #(
         txfull <= v_txfull;
         txhalff_r <= v_txhalff;
         rxroom <= v_rxroom;
+        last_time <= v_last_time;
     end
 
     initial begin
@@ -573,6 +596,7 @@ module spwstream #(
         txfull = 1'b0;
         txhalff_r = 1'b0;
         rxroom = 6'b000000;
+        last_time = 6'h3f;
     end
 
 endmodule

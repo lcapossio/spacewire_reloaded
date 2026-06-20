@@ -162,6 +162,18 @@ def test_spw_axi_top_loopback_verilog():
     )
 
 
+def test_spw_axi_top_strict_timecodes_verilog():
+    test_dir = Path(__file__).resolve().parent
+    run_icarus(
+        top="spw_axi_top_loop_tb",
+        test_module="spw_axi_top_strict_tc_cocotb",
+        verilog_sources=[*(ROOT / path for path in VERILOG_RTL), test_dir / "spw_axi_top_loop_tb.v"],
+        test_dir=test_dir,
+        build_dir=ROOT / "build" / "cocotb" / "spw_axi_top_strict_tc_verilog",
+        parameters={"STRICT_TIMECODES": 1},
+    )
+
+
 @pytest.mark.parametrize("case", LOOPBACK_SWEEP_CASES, ids=lambda case: f"spwlink{case['id']:02d}")
 def test_spw_axi_top_spwlink_sweep_verilog(case):
     test_dir = Path(__file__).resolve().parent
@@ -240,6 +252,22 @@ def test_spw_axi_top_loopback_vhdl():
         vhdl_sources=[*(ROOT / path for path in VHDL_RTL), test_dir / "spw_axi_top_loop_tb.vhd"],
         test_dir=test_dir,
         build_dir=ROOT / "build" / "cocotb" / "spw_axi_top_loop_vhdl",
+    )
+
+
+@pytest.mark.skipif(
+    os.environ.get("SPW_RUN_VHDL_COCOTB") != "1",
+    reason="VHDL cocotb tests are enabled by build.py test --hdl vhdl/all",
+)
+def test_spw_axi_top_strict_timecodes_vhdl():
+    test_dir = Path(__file__).resolve().parent
+    run_ghdl(
+        top="spw_axi_top_loop_tb",
+        test_module="spw_axi_top_strict_tc_cocotb",
+        vhdl_sources=[*(ROOT / path for path in VHDL_RTL), test_dir / "spw_axi_top_loop_tb.vhd"],
+        test_dir=test_dir,
+        build_dir=ROOT / "build" / "cocotb" / "spw_axi_top_strict_tc_vhdl",
+        generics={"STRICT_TIMECODES": 1},
     )
 
 

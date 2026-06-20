@@ -20,6 +20,7 @@ from cocotbext.axi import (
 REG_CONTROL = 0x08
 REG_STATUS = 0x0C
 REG_TXDIVCNT = 0x10
+REG_TIMECODE_TX = 0x14
 REG_ERROR = 0x1C
 
 ERR_DISC = 0x1
@@ -122,6 +123,113 @@ class SpaceWireLineDriver:
     async def esc_stream(self):
         while True:
             await self.esc()
+
+
+class SpaceWireMonitor:
+    """Decode the characters the DUT transmits on spw_do/spw_so. A faithful port
+    of rtl/verilog/spwrecv.v's bit-level decoder, so it reuses the same NULL
+    sync and parity/control framing. Each decoded character is appended to
+    ``tokens`` as (kind, value, time_ns): kind in
+    NULL/FCT/DATA/EOP/EEP/TIMECODE/ERRPAR/ERRESC."""
+
+    def __init__(self, data_signal, strobe_signal):
+        self.data = data_signal
+        self.strobe = strobe_signal
+        self.tokens = []
+        self.null_seen = 0
+        self.bitshift = 0
+        self.bitcnt = 0
+        self.parity = 0
+        self.control = 0
+        self.escaped = 0
+        self.errpar = 0
+        self.erresc = 0
+
+    def feed_bit(self, inbit):
+        now = get_sim_time("ns")
+        inbit &= 1
+        v_bitshift = self.bitshift
+        v_bitcnt = self.bitcnt
+        v_parity = self.parity
+        v_control = self.control
+        v_escaped = self.escaped
+        new_errpar = 0
+        new_erresc = 0
+
+        if v_bitcnt & 1:
+            if ((v_parity ^ inbit) & 1) == 0:
+                new_errpar = 1
+            else:
+                if v_control:
+                    cc = (v_bitshift >> 6) & 0x3  # bitshift[7:6]
+                    if cc == 0b00:
+                        self.tokens.append(("NULL" if self.escaped else "FCT", 0, now))
+                        v_escaped = 0
+                    elif cc == 0b10:
+                        if self.escaped:
+                            new_erresc = 1
+                        else:
+                            self.tokens.append(("EOP", 0, now))
+                        v_escaped = 0
+                    elif cc == 0b01:
+                        if self.escaped:
+                            new_erresc = 1
+                        else:
+                            self.tokens.append(("EEP", 0, now))
+                        v_escaped = 0
+                    else:  # 0b11 = ESC
+                        if self.escaped:
+                            new_erresc = 1
+                        v_escaped = 1
+                else:
+                    if self.escaped:
+                        self.tokens.append(("TIMECODE", v_bitshift & 0xFF, now))
+                    else:
+                        self.tokens.append(("DATA", v_bitshift & 0xFF, now))
+                    v_escaped = 0
+            v_parity = 0
+            v_control = inbit
+            v_bitcnt = 0b0000001000 if inbit else 0b1000000000
+        else:
+            v_bitcnt = v_bitcnt >> 1
+            v_parity = v_parity ^ inbit
+
+        if not self.null_seen:
+            if v_bitshift == 0b000101110:
+                self.null_seen = 1
+                v_control = inbit
+                v_parity = 0
+                v_bitcnt = 0b0000001000
+
+        v_bitshift = ((inbit << 8) | (v_bitshift >> 1)) & 0x1FF
+
+        if new_errpar and not self.errpar:
+            self.tokens.append(("ERRPAR", 0, now))
+        if new_erresc and not self.erresc:
+            self.tokens.append(("ERRESC", 0, now))
+
+        self.bitshift = v_bitshift
+        self.bitcnt = v_bitcnt
+        self.parity = v_parity
+        self.control = v_control
+        self.escaped = v_escaped
+        self.errpar = self.errpar | new_errpar
+        self.erresc = self.erresc | new_erresc
+
+    async def run(self):
+        while True:
+            await First(Edge(self.data), Edge(self.strobe))
+            try:
+                bit = int(self.data.value)
+            except ValueError:
+                continue  # unresolved (x/z) edge during bring-up; ignore
+            self.feed_bit(bit)
+
+    def kinds(self):
+        return [t[0] for t in self.tokens]
+
+    def data_bytes(self):
+        return [value for kind, value, _ in self.tokens if kind == "DATA"]
 
 
 async def reset_dut(dut):
@@ -797,3 +905,237 @@ async def axi_top_external_line_early_null_alone_never_runs(dut):
     # and never reach Run on the strength of the already-latched NULL alone.
     line.reset()
     await assert_never_runs(axil, dut, cycles=6000)
+
+
+async def bringup_soft_loopback(dut, with_monitor=False):
+    """Bring the core up talking to itself through a software loopback (its own TX
+    mirrored to its RX). When with_monitor is set, a SpaceWireMonitor is started
+    BEFORE bring-up so it captures the startup NULL/FCT handshake. Returns
+    (axil, source, sink, gate, monitor)."""
+    sys_freq = env_float("SPW_SYS_CLOCK_FREQ", 20.0e6)
+    rx_freq = env_float("SPW_RX_CLOCK_FREQ", 20.0e6)
+    tx_freq = env_float("SPW_TX_CLOCK_FREQ", 20.0e6)
+    tx_div = env_int("SPW_TX_CLOCK_DIV", 1)
+
+    cocotb.start_soon(run_clock(dut.clk, sys_freq))
+    cocotb.start_soon(run_clock(dut.rxclk, rx_freq))
+    cocotb.start_soon(run_clock(dut.txclk, tx_freq))
+    initialize_inputs(dut)
+    await reset_dut(dut)
+
+    axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
+    source = AxiStreamSource(AxiStreamBus.from_prefix(dut, "s_axis"), dut.clk, dut.rst)
+    sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "m_axis"), dut.clk, dut.rst)
+
+    gate = {"on": True}
+    cocotb.start_soon(soft_loopback(dut, gate))
+    monitor = None
+    if with_monitor:
+        monitor = SpaceWireMonitor(dut.spw_do, dut.spw_so)
+        cocotb.start_soon(monitor.run())
+
+    await axil.write_dword(REG_TXDIVCNT, tx_div & 0xFF)
+    await axil.write_dword(REG_CONTROL, 0x00000006)  # autostart|linkstart
+    await wait_running(axil, dut.clk)
+    return axil, source, sink, gate, monitor
+
+
+@cocotb.test()
+async def axi_top_external_line_tx_monitor_self_check(dut):
+    """Validate SpaceWireMonitor against a known packet over software loopback:
+    the decoder must recover exactly the transmitted data bytes + EOP, and must
+    have decoded NULLs and FCTs during startup, with no spurious parity/escape
+    errors. This underpins the handshake-order and priority tests below."""
+    axil, source, sink, gate, mon = await bringup_soft_loopback(dut, with_monitor=True)
+    payload = [0xA5, 0x3C, 0x7E, 0x01]
+    source.send_nowait(nchar_frame(payload))
+    # The TLAST beat becomes the EOP on the wire (its data byte is the EOP marker,
+    # not transmitted), so the decoder should see exactly the payload + an EOP.
+    for _ in range(40000):
+        if "EOP" in mon.kinds() and len(mon.data_bytes()) >= len(payload):
+            break
+        await RisingEdge(dut.clk)
+    assert mon.data_bytes() == payload, f"decoder data mismatch: {mon.data_bytes()}"
+    assert "EOP" in mon.kinds(), "decoder did not see the EOP"
+    assert "NULL" in mon.kinds(), "startup NULLs not decoded"
+    assert "FCT" in mon.kinds(), "startup FCTs not decoded"
+    assert "ERRPAR" not in mon.kinds(), "spurious parity error from decoder"
+    assert "ERRESC" not in mon.kinds(), "spurious escape error from decoder"
+
+
+@cocotb.test()
+async def axi_top_external_line_emits_null_then_fct_before_run(dut):
+    """Rev.1 handshake order (Sent NULL / Sent FCT gating): the core must emit at
+    least one NULL before it emits any FCT, and at least one FCT before it reaches
+    Run, and it must not emit any N-Char/Time-Code before that first FCT. Decoded
+    directly from the transmitted character stream captured from bring-up."""
+    axil, source, sink, gate, mon = await bringup_soft_loopback(dut, with_monitor=True)
+    kinds = mon.kinds()
+    assert "NULL" in kinds, "core emitted no NULL during startup"
+    assert "FCT" in kinds, "core reached Run without emitting an FCT"
+    first_null = kinds.index("NULL")
+    first_fct = kinds.index("FCT")
+    assert first_null < first_fct, "core emitted an FCT before any NULL"
+    for premature in ("DATA", "EOP", "EEP", "TIMECODE"):
+        assert premature not in kinds[:first_fct], (
+            f"core emitted {premature} before its first FCT"
+        )
+    assert "ERRPAR" not in kinds and "ERRESC" not in kinds, "decode error during handshake"
+
+
+@cocotb.test()
+async def axi_top_external_line_timecode_preempts_pending_data(dut):
+    """Character priority (Time-Code > N-Char): a Time-Code requested while a long
+    data packet is still transmitting must be emitted ahead of the remaining
+    queued data (not after it), and promptly. Decoded from the transmit stream."""
+    axil, source, sink, gate, mon = await bringup_soft_loopback(dut, with_monitor=True)
+
+    source.send_nowait(nchar_frame([i & 0xFF for i in range(40)]))
+    # Let several data chars go out, then request a Time-Code mid-packet.
+    while len(mon.data_bytes()) < 4:
+        await RisingEdge(dut.clk)
+    request_ns = get_sim_time("ns")
+    await axil.write_dword(REG_TIMECODE_TX, 0x80000000 | 0x2A)
+
+    for _ in range(80000):
+        if "EOP" in mon.kinds():
+            break
+        await RisingEdge(dut.clk)
+    kinds = mon.kinds()
+    assert "TIMECODE" in kinds, "time-code was never transmitted"
+
+    tc_idx = kinds.index("TIMECODE")
+    last_data_idx = len(kinds) - 1 - kinds[::-1].index("DATA")
+    assert tc_idx < last_data_idx, (
+        "time-code did not preempt the remaining queued data (lower priority than N-Char)"
+    )
+
+    tc_kind, tc_val, tc_ns = next(t for t in mon.tokens if t[0] == "TIMECODE")
+    assert tc_val == 0x2A, f"time-code value corrupted: 0x{tc_val:02x}"
+    # Latency: the time-code should jump the queue within a few character times,
+    # not wait for the whole packet (40 chars ~ 400 us at 10 Mbit/s).
+    assert tc_ns - request_ns < 50_000, (
+        f"time-code latency {tc_ns - request_ns} ns too high; it did not preempt"
+    )
+
+
+async def far_end_nulls_with_fct(line, ctrl):
+    """Keep the far end alive with NULLs, emitting an FCT whenever ctrl['fct'] > 0
+    (one per request). Lets a test grant SpaceWire credit (8 N-Chars per FCT) at
+    precise moments while the link stays up."""
+    while True:
+        if ctrl["fct"] > 0:
+            await line.fct()
+            ctrl["fct"] -= 1
+        else:
+            await line.null()
+
+
+async def bringup_external_keepalive(dut, with_monitor=False):
+    """Bring up via the external line driver using a NULL keepalive + on-demand
+    FCT grants, so the link stays up and the test controls TX credit exactly.
+    Returns (axil, source, ctrl, monitor)."""
+    sys_freq = env_float("SPW_SYS_CLOCK_FREQ", 20.0e6)
+    rx_freq = env_float("SPW_RX_CLOCK_FREQ", 20.0e6)
+    tx_freq = env_float("SPW_TX_CLOCK_FREQ", 20.0e6)
+    input_rate = env_float("SPW_INPUT_RATE", 10.0e6)
+    tx_div = env_int("SPW_TX_CLOCK_DIV", 1)
+
+    cocotb.start_soon(run_clock(dut.clk, sys_freq))
+    cocotb.start_soon(run_clock(dut.rxclk, rx_freq))
+    cocotb.start_soon(run_clock(dut.txclk, tx_freq))
+    initialize_inputs(dut)
+    await reset_dut(dut)
+
+    line = SpaceWireLineDriver(dut.spw_di_ext, dut.spw_si_ext, input_rate)
+    line.reset()
+    axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
+    source = AxiStreamSource(AxiStreamBus.from_prefix(dut, "s_axis"), dut.clk, dut.rst)
+    ctrl = {"fct": 0}
+    cocotb.start_soon(far_end_nulls_with_fct(line, ctrl))
+    monitor = None
+    if with_monitor:
+        monitor = SpaceWireMonitor(dut.spw_do, dut.spw_so)
+        cocotb.start_soon(monitor.run())
+
+    await axil.write_dword(REG_TXDIVCNT, tx_div & 0xFF)
+    await axil.write_dword(REG_CONTROL, 0x00000006)
+    # Grant exactly one FCT once Connecting so the DUT reaches Run with a small,
+    # bounded TX credit (never near the overflow threshold).
+    for _ in range(50000):
+        status = await read_status(axil)
+        if status & (1 << 2):
+            break
+        if (status & (1 << 1)) and ctrl["fct"] == 0:
+            ctrl["fct"] = 1
+        await RisingEdge(dut.clk)
+    await wait_running(axil, dut.clk)
+    return axil, line, source, ctrl, monitor
+
+
+async def wait_tx_stall(mon, dut, idle_cycles=400):
+    """Wait until the decoded DATA count stops growing for idle_cycles (the TX has
+    run out of credit and is sending only NULLs); return the stable DATA count."""
+    last = len(mon.data_bytes())
+    stable = 0
+    while stable < idle_cycles:
+        await RisingEdge(dut.clk)
+        now = len(mon.data_bytes())
+        if now == last:
+            stable += 1
+        else:
+            stable = 0
+            last = now
+    return last
+
+
+@cocotb.test()
+async def axi_top_external_line_one_fct_grants_eight_nchars(dut):
+    """Flow control: one received FCT grants exactly eight N-Chars of TX credit.
+    Drain the startup credit to a stall, then grant one FCT at a time and confirm
+    exactly eight more N-Chars are transmitted per FCT (decoded from the wire)."""
+    axil, line, source, ctrl, mon = await bringup_external_keepalive(dut, with_monitor=True)
+
+    # Queue far more data than any credit grant; transmission is credit-limited.
+    source.send_nowait(nchar_frame([i & 0xFF for i in range(200)]))
+    baseline = await wait_tx_stall(mon, dut)
+
+    ctrl["fct"] += 1
+    after_one = await wait_tx_stall(mon, dut)
+    assert after_one - baseline == 8, f"one FCT released {after_one - baseline} N-Chars, expected 8"
+
+    ctrl["fct"] += 1
+    after_two = await wait_tx_stall(mon, dut)
+    assert after_two - after_one == 8, f"second FCT released {after_two - after_one} N-Chars, expected 8"
+
+
+@cocotb.test()
+async def axi_top_external_line_eop_consumes_rx_credit(dut):
+    """EOP/EEP count as N-Chars for flow control: a burst of EOPs (empty packets)
+    with the RX stream undrained exhausts the granted RX credit and raises errcred,
+    proving end-of-packet markers consume credit exactly like data N-Chars (if they
+    did not, no credit error could occur)."""
+    axil, line = await setup_default_external_dut(dut)
+    for _ in range(100):
+        await line.eop()
+    assert (await wait_error(axil, dut.clk, ERR_CRED)) & ERR_CRED
+    await wait_not_running(axil, dut.clk)
+
+
+@cocotb.test()
+async def axi_top_external_line_noise_never_reaches_run(dut):
+    """Auto-start hardening: random line activity (noise) must never carry the link
+    to Run -- only a legal NULL-then-FCT handshake may. With autostart|linkstart
+    enabled, drive a deterministic pseudo-random bit stream into the receiver and
+    assert the link never reaches Run; parity/escape/disconnect errors keep
+    resetting the bring-up. (The core advances on decoded NULL/FCT characters, not
+    on raw bit activity: gotBit only feeds disconnect timing, never Run.)"""
+    axil, line = await begin_external_bringup(dut)  # autostart|linkstart issued
+    lfsr = 0xACE1
+    for index in range(4000):
+        feedback = ((lfsr >> 15) ^ (lfsr >> 13) ^ (lfsr >> 12) ^ (lfsr >> 10)) & 1
+        lfsr = ((lfsr << 1) | feedback) & 0xFFFF
+        await line.bit(lfsr & 1)
+        if (index & 0x3F) == 0:
+            assert not (await read_status(axil)) & (1 << 2), "line noise drove the link to Run"
+    assert not (await read_status(axil)) & (1 << 2), "line noise drove the link to Run"

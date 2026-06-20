@@ -19,6 +19,7 @@ entity spw_axi_top is
         tximpl:           spw_implementation_type := impl_generic;
         rxfifosize_bits:  integer range 6 to 14 := 11;
         txfifosize_bits:  integer range 2 to 14 := 11;
+        strict_timecodes: integer range 0 to 1 := 0;
         AXI_ADDR_WIDTH:   integer := 8;
         CORE_ID:          std_logic_vector(31 downto 0) := x"53505752";
         VERSION:          std_logic_vector(31 downto 0) := x"00010000"
@@ -187,7 +188,8 @@ begin
             rxchunk          => rxchunk,
             tximpl           => tximpl,
             rxfifosize_bits  => rxfifosize_bits,
-            txfifosize_bits  => txfifosize_bits )
+            txfifosize_bits  => txfifosize_bits,
+            strict_timecodes => strict_timecodes )
         port map (
             clk        => clk,
             rxclk      => rxclk,

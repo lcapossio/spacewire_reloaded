@@ -20,7 +20,8 @@ entity spw_axi_top_loop_tb is
         RXCHUNK_VALUE:    integer := 1;
         LOOPBACK_ENABLE:  integer := 1;
         RXFIFOSIZE_BITS:  integer := 6;
-        TXFIFOSIZE_BITS:  integer := 4
+        TXFIFOSIZE_BITS:  integer := 4;
+        STRICT_TIMECODES: integer := 0
     );
     port (
         clk:            in  std_logic;
@@ -95,6 +96,7 @@ begin
             tximpl           => to_impl(TXIMPL_SELECT),
             rxfifosize_bits  => RXFIFOSIZE_BITS,
             txfifosize_bits  => TXFIFOSIZE_BITS,
+            strict_timecodes => STRICT_TIMECODES,
             AXI_ADDR_WIDTH   => 8 )
         port map (
             clk            => clk,

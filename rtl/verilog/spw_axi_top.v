@@ -21,6 +21,7 @@ module spw_axi_top #(
     parameter        RXCHUNK = 1,
     parameter        RXFIFOSIZE_BITS = 11,
     parameter        TXFIFOSIZE_BITS = 11,
+    parameter        STRICT_TIMECODES = 0,
     parameter        AXI_ADDR_WIDTH = 8,
     parameter [31:0] CORE_ID = 32'h53505752,
     parameter [31:0] VERSION = 32'h00010000
@@ -215,7 +216,8 @@ module spw_axi_top #(
         .TXIMPL(TXIMPL),
         .RXCHUNK(RXCHUNK),
         .RXFIFOSIZE_BITS(RXFIFOSIZE_BITS),
-        .TXFIFOSIZE_BITS(TXFIFOSIZE_BITS)
+        .TXFIFOSIZE_BITS(TXFIFOSIZE_BITS),
+        .STRICT_TIMECODES(STRICT_TIMECODES)
     ) core_inst (
         .clk(clk),
         .rxclk(rxclk),

@@ -17,7 +17,8 @@ module spw_axi_top_loop_tb #(
     parameter        RXCHUNK = 1,
     parameter        LOOPBACK = 1,
     parameter        RXFIFOSIZE_BITS = 6,
-    parameter        TXFIFOSIZE_BITS = 4
+    parameter        TXFIFOSIZE_BITS = 4,
+    parameter        STRICT_TIMECODES = 0
 ) (
     input  wire       clk,
     input  wire       rxclk,
@@ -75,7 +76,8 @@ module spw_axi_top_loop_tb #(
         .TXIMPL(TXIMPL),
         .RXCHUNK(RXCHUNK),
         .RXFIFOSIZE_BITS(RXFIFOSIZE_BITS),
-        .TXFIFOSIZE_BITS(TXFIFOSIZE_BITS)
+        .TXFIFOSIZE_BITS(TXFIFOSIZE_BITS),
+        .STRICT_TIMECODES(STRICT_TIMECODES)
     ) dut_inst (
         .clk(clk),
         .rxclk(rxclk),

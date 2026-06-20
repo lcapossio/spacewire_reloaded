@@ -50,7 +50,13 @@ entity spwstream is
         rxfifosize_bits: integer range 6 to 14 := 11;
 
         -- Size of the transmit FIFO as the 2-logarithm of the number of bytes.
-        txfifosize_bits: integer range 2 to 14 := 11
+        txfifosize_bits: integer range 2 to 14 := 11;
+
+        -- Strict TimeCode reception. 0 (default) = transparent pipe: every
+        -- received TimeCode pulses tick_out. 1 = tick_out pulses only for an
+        -- in-sequence TimeCode (count = previous + 1 mod 64); out-of-sequence
+        -- values still update the local count but do not pulse tick_out.
+        strict_timecodes: integer range 0 to 1 := 0
     );
 
     port (
@@ -233,6 +239,7 @@ architecture spwstream_arch of spwstream is
         txfull:         std_logic;      -- '1' if TX fifo is full
         txhalff:        std_logic;      -- '1' if TX fifo is at least half full
         rxroom:         std_logic_vector(5 downto 0);
+        last_time:      std_logic_vector(5 downto 0);  -- last received TimeCode count
     end record;
 
     constant regs_reset: regs_type := (
@@ -250,7 +257,8 @@ architecture spwstream_arch of spwstream is
         rxhalff         => '0',
         txfull          => '0',
         txhalff         => '0',
-        rxroom          => (others => '0') );
+        rxroom          => (others => '0'),
+        last_time       => (others => '1') );
 
     signal r: regs_type := regs_reset;
     signal rin: regs_type;
@@ -516,10 +524,24 @@ begin
             xmit_divcnt <= default_divcnt;
         end if;
 
+        -- Strict TimeCode filter: a received TimeCode always updates the local
+        -- count; in strict mode only an in-sequence value (previous+1 mod 64)
+        -- pulses tick_out. The comparison uses the registered r.last_time, so
+        -- tick_out stays combinational as in the transparent (default) mode.
+        if linko.tick_out = '1' then
+            v.last_time := linko.time_out;
+        end if;
+
         -- Drive outputs.
         txrdy       <= not r.txfull;
         txhalff     <= r.txhalff;
-        tick_out    <= linko.tick_out;
+        if strict_timecodes /= 0 then
+            tick_out <= linko.tick_out and
+                        bool_to_logic(unsigned(linko.time_out) =
+                                      (unsigned(r.last_time) + 1));
+        else
+            tick_out <= linko.tick_out;
+        end if;
         ctrl_out    <= linko.ctrl_out;
         time_out    <= linko.time_out;
         rxvalid     <= r.rxfifo_rvalid;
