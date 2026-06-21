@@ -99,8 +99,11 @@ CONFIGS = [
     _integ("generic-loopback", "spw_axi_top_cocotb"),
     _integ("external-line-errors", "spw_axi_top_line_cocotb", {"LOOPBACK": 0}),
     _integ("strict-timecodes", "spw_axi_top_strict_tc_cocotb", {"STRICT_TIMECODES": 1}),
+    _integ("big-rxfifo", "spw_axi_top_cocotb", {"RXFIFOSIZE_BITS": 8}),
     _integ("fast-loopback", "spw_axi_top_cocotb", {"RXIMPL": 1, "TXIMPL": 1, "RXCHUNK": 4}),
     _sweep("fast-rx-chunk1", 5),
+    _sweep("fast-rx-chunk2", 7),
+    _sweep("fast-rx-chunk3", 8),
     _sweep("fast-rx-tx", 22),
     _leaf("spw_axi_lite_regs"),
     _leaf("spw_axis_tx"),
@@ -190,11 +193,11 @@ def lcov_line_stats(info: Path) -> dict[str, list[int]]:
 def dat_type_stats(dat: Path):
     """Parse a (merged) Verilator coverage.dat and tally hit/found per point type
     (line/branch/expr/toggle) for the RTL under test. Verilator records each
-    point with a 't' field; the lcov export collapses these into a single line %,
-    so this reads the raw data to report branch and expression coverage cleanly.
+    point with a 't' field, and keeps a separate point per instance/hierarchy
+    ('h'); a source location is aggregated across instances/configs and counted
+    as hit if any instance hit it (matching how lcov computes the line %).
     Returns (totals[type] -> [found, hit], per_file[type][file] -> [found, hit])."""
-    totals: dict[str, list[int]] = {}
-    per_file: dict[str, dict[str, list[int]]] = {}
+    seen: dict[tuple, bool] = {}
     for line in dat.read_text(encoding="latin-1").splitlines():
         if not line.startswith("C "):
             continue
@@ -211,8 +214,15 @@ def dat_type_stats(dat: Path):
         src = fields.get("f", "")
         if "/rtl/" not in src.replace("\\", "/"):
             continue  # RTL under test only (skip the testbench and debug cores)
-        kind = fields.get("t", "?")
-        name = Path(src).name
+        # Aggregate by source location (drop the 'h' hierarchy field) so a branch
+        # covered in any config counts as covered.
+        loc = (fields.get("t", "?"), Path(src).name,
+               fields.get("l", ""), fields.get("o", ""))
+        seen[loc] = seen.get(loc, False) or hit
+
+    totals: dict[str, list[int]] = {}
+    per_file: dict[str, dict[str, list[int]]] = {}
+    for (kind, name, _l, _o), hit in seen.items():
         totals.setdefault(kind, [0, 0])
         per_file.setdefault(kind, {}).setdefault(name, [0, 0])
         totals[kind][0] += 1

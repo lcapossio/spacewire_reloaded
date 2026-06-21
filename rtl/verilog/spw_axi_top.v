@@ -99,6 +99,9 @@ module spw_axi_top #(
     wire erresc;
     wire errcred;
 
+    // verilator coverage_off
+    // Elaboration parameter guards ($finish): taken only for an illegal config
+    // that aborts simulation, so never coverable by a passing run.
     initial begin
         // Parameter-range guards mirroring the VHDL constrained generics, so
         // invalid Verilog parameters fail with an intentional diagnostic at the
@@ -128,6 +131,7 @@ module spw_axi_top #(
             $finish;
         end
     end
+    // verilator coverage_on
 
     spw_axi_lite_regs #(
         .ADDR_WIDTH(AXI_ADDR_WIDTH),

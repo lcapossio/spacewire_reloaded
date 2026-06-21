@@ -94,6 +94,10 @@ module spwstream #(
     // negative replication count before the guard can report it.
     localparam integer RXROOM_PAD = (RXFIFOSIZE_BITS > 6) ? (RXFIFOSIZE_BITS - 6) : 0;
 
+    // verilator coverage_off
+    // Elaboration parameter guards ($display+$finish): these branches are taken
+    // only for an illegal configuration, which aborts the simulation -- they can
+    // never be covered by a passing run, so exclude them from coverage.
     initial begin
         if (RESET_TIME == 0 && (RESET_TIME_DERIVED < 1 || RESET_TIME_DERIVED > 2047)) begin
             $display("spwstream: derived RESET_TIME %0d is outside 11-bit range", RESET_TIME_DERIVED);
@@ -144,6 +148,7 @@ module spwstream #(
             $finish;
         end
     end
+    // verilator coverage_on
 
     reg rxpacket;
     reg rxeep;

@@ -485,3 +485,43 @@ async def axi_lite_sticky_events_survive_simultaneous_clear(dut):
     await manual_write_aw_then_w(dut, REG_IRQ_STATUS, 0x00000002, wstrb=0x1, w_delay=3)
     dut.tick_out.value = 0
     assert await manual_read_dword(dut, REG_TIMECODE_RX) == 0x800000EB
+
+
+@cocotb.test()
+async def axi_lite_partial_byte_strobes(dut):
+    """Partial byte-strobe writes to the apply_wstrb-backed registers (IRQ_ENABLE,
+    CONTROL): some byte lanes update and others are left unchanged, exercising
+    both arms of apply_wstrb's per-byte strobe check (branch coverage)."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    initialize_manual_axil_signals(dut)
+    await reset_dut(dut)
+    start_common_assertions(dut)
+
+    # IRQ_ENABLE: fill, then clear only byte lanes 0 and 2 (wstrb=0x5) -> the
+    # written bytes go to 0, the strobe-disabled bytes 1/3 stay 0xFF.
+    await manual_write_aw_then_w(dut, REG_IRQ_ENABLE, 0xFFFFFFFF, wstrb=0xF, w_delay=3)
+    assert await manual_read_dword(dut, REG_IRQ_ENABLE) == 0xFFFFFFFF
+    await manual_write_aw_then_w(dut, REG_IRQ_ENABLE, 0x00000000, wstrb=0x5, w_delay=3)
+    assert await manual_read_dword(dut, REG_IRQ_ENABLE) == 0xFF00FF00
+    # Now set only the upper two byte lanes (wstrb=0xA).
+    await manual_write_aw_then_w(dut, REG_IRQ_ENABLE, 0x12345678, wstrb=0xA, w_delay=3)
+    assert await manual_read_dword(dut, REG_IRQ_ENABLE) == 0x12005600
+
+    # CONTROL via apply_wstrb: set the low byte only, then a strobe that leaves it.
+    await manual_write_aw_then_w(dut, REG_CONTROL, 0x0000000E, wstrb=0x1, w_delay=3)
+    assert await manual_read_dword(dut, REG_CONTROL) == 0x0000000E
+    await manual_write_aw_then_w(dut, REG_CONTROL, 0x00000000, wstrb=0x2, w_delay=3)
+    assert await manual_read_dword(dut, REG_CONTROL) == 0x0000000E  # byte0 unchanged
+
+    # Per-register write-strobe gates driven with the gating byte lane NOT
+    # strobed, so each register holds (the not-taken arm of each gate).
+    await manual_write_aw_then_w(dut, REG_TXDIVCNT, 0x000000FF, wstrb=0x2, w_delay=3)
+    assert await manual_read_dword(dut, REG_TXDIVCNT) == 0x00000000  # strb[0]=0 -> held
+    # TIMECODE_TX (WO): strb[0]=0 -> time/ctrl held; strb[3]=0 -> no tick pulse.
+    await manual_write_aw_then_w(dut, REG_TIMECODE_TX, 0x000000FF, wstrb=0x2, w_delay=3)
+    await Timer(1, unit="ns")
+    assert value(dut.tick_in) == 0
+    # TIMECODE_RX clear needs strb[3]+bit31; strb[1] alone must not clear.
+    await manual_write_aw_then_w(dut, REG_TIMECODE_RX, 0x80000000, wstrb=0x2, w_delay=3)
+    # ERROR clear needs strb[0]; strb[1] alone must not clear.
+    await manual_write_aw_then_w(dut, REG_ERROR, 0x0000000F, wstrb=0x2, w_delay=3)

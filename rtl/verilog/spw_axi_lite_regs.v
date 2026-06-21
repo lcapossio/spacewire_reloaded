@@ -153,6 +153,8 @@ module spw_axi_lite_regs #(
     assign write_in_range = ((write_addr >> 6) == 0);
     assign read_in_range = ((s_axi_araddr >> 6) == 0);
 
+    // verilator coverage_off
+    // Elaboration guard ($finish): never coverable by a passing run.
     initial begin
         // The 64-byte register aperture needs at least address bits [5:0].
         if (ADDR_WIDTH < 6) begin
@@ -160,6 +162,7 @@ module spw_axi_lite_regs #(
             $finish;
         end
     end
+    // verilator coverage_on
 
     function [31:0] apply_wstrb;
         input [31:0] old_value;
