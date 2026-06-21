@@ -187,6 +187,65 @@ def lcov_line_stats(info: Path) -> dict[str, list[int]]:
     return per
 
 
+def dat_type_stats(dat: Path):
+    """Parse a (merged) Verilator coverage.dat and tally hit/found per point type
+    (line/branch/expr/toggle) for the RTL under test. Verilator records each
+    point with a 't' field; the lcov export collapses these into a single line %,
+    so this reads the raw data to report branch and expression coverage cleanly.
+    Returns (totals[type] -> [found, hit], per_file[type][file] -> [found, hit])."""
+    totals: dict[str, list[int]] = {}
+    per_file: dict[str, dict[str, list[int]]] = {}
+    for line in dat.read_text(encoding="latin-1").splitlines():
+        if not line.startswith("C "):
+            continue
+        key, _, count = line[2:].rpartition(" ")
+        try:
+            hit = int(count) > 0
+        except ValueError:
+            continue
+        fields = {}
+        for part in key.split("\x01"):
+            name, sep, value = part.partition("\x02")
+            if sep:
+                fields[name] = value
+        src = fields.get("f", "")
+        if "/rtl/" not in src.replace("\\", "/"):
+            continue  # RTL under test only (skip the testbench and debug cores)
+        kind = fields.get("t", "?")
+        name = Path(src).name
+        totals.setdefault(kind, [0, 0])
+        per_file.setdefault(kind, {}).setdefault(name, [0, 0])
+        totals[kind][0] += 1
+        per_file[kind][name][0] += 1
+        if hit:
+            totals[kind][1] += 1
+            per_file[kind][name][1] += 1
+    return totals, per_file
+
+
+def report_type_coverage(dats: list[str]) -> None:
+    """Merge the raw coverage data and print per-type (line/branch/expr/toggle)
+    coverage, with a per-file branch-coverage breakdown."""
+    merged_dat = coverage_base() / "merged.dat"
+    if os.system(f"verilator_coverage --write {merged_dat} {' '.join(dats)}") != 0:
+        print("[warn] could not merge raw coverage.dat for per-type report")
+        return
+    totals, per_file = dat_type_stats(merged_dat)
+    labels = [("line", "block/line"), ("branch", "branch"),
+              ("expr", "expression"), ("toggle", "toggle")]
+    print("\n=== merged Verilator coverage by point type (RTL only) ===")
+    for kind, label in labels:
+        if kind in totals:
+            found, hit = totals[kind]
+            pct = 100.0 * hit / found if found else 0.0
+            print(f"  {label:12s} {hit:5d}/{found:<5d} {pct:6.1f}%")
+    if "branch" in per_file:
+        print("\n  branch coverage by file:")
+        for name, (found, hit) in sorted(per_file["branch"].items()):
+            pct = 100.0 * hit / found if found else 0.0
+            print(f"    {name:26s} {hit:4d}/{found:<4d} {pct:6.1f}%")
+
+
 def main() -> int:
     min_pct = parse_min(sys.argv[1:])
     for tool in ("verilator", "verilator_coverage"):
@@ -228,6 +287,8 @@ def main() -> int:
     overall = 100.0 * total_hit / total_found if total_found else 0.0
     print(f"  {'TOTAL (RTL)':26s} {total_hit:5d}/{total_found:<5d} {overall:6.1f}%")
     print(f"\nmerged lcov info: {merged}")
+
+    report_type_coverage(dats)
 
     if min_pct is not None and overall < min_pct:
         print(f"ERROR: RTL line coverage {overall:.1f}% is below the {min_pct:.1f}% floor")
