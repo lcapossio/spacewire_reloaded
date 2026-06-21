@@ -78,25 +78,25 @@ SPWSTREAM_BAD = [
     "params,msg", SPWSTREAM_BAD,
     ids=[f"{list(p)[0]}={list(p.values())[0]}" for p, _ in SPWSTREAM_BAD],
 )
-def test_spwstream_rejects_invalid_param(tmp_path, params, msg):
+def test_spwstream_rejects_invalid_param_verilog(tmp_path, params, msg):
     out = _elaborate_and_run(tmp_path, "spwstream", SPWSTREAM_SRCS, params)
     assert msg in out, out
 
 
 @pytest.mark.skipif(not have_icarus, reason="iverilog/vvp not on PATH")
-def test_spwstream_valid_params_clean(tmp_path):
+def test_spwstream_valid_params_clean_verilog(tmp_path):
     out = _elaborate_and_run(tmp_path, "spwstream", SPWSTREAM_SRCS, {})
     assert "must be" not in out, out
 
 
 @pytest.mark.skipif(not have_icarus, reason="iverilog/vvp not on PATH")
 @pytest.mark.parametrize("tickdiv", [11, 25])
-def test_streamtest_rejects_invalid_tickdiv(tmp_path, tickdiv):
+def test_streamtest_rejects_invalid_tickdiv_verilog(tmp_path, tickdiv):
     out = _elaborate_and_run(tmp_path, "streamtest", STREAMTEST_SRCS, {"TICKDIV": tickdiv})
     assert "TICKDIV must be" in out, out
 
 
 @pytest.mark.skipif(not have_icarus, reason="iverilog/vvp not on PATH")
-def test_spw_axi_top_rejects_invalid_param(tmp_path):
+def test_spw_axi_top_rejects_invalid_param_verilog(tmp_path):
     out = _elaborate_and_run(tmp_path, "spw_axi_top", AXITOP_SRCS, {"RXCHUNK": 5})
     assert "RXCHUNK must be" in out, out

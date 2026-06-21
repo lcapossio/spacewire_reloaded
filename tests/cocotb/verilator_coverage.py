@@ -98,6 +98,7 @@ def _leaf(name: str) -> dict:
 CONFIGS = [
     _integ("generic-loopback", "spw_axi_top_cocotb"),
     _integ("external-line-errors", "spw_axi_top_line_cocotb", {"LOOPBACK": 0}),
+    _integ("strict-timecodes", "spw_axi_top_strict_tc_cocotb", {"STRICT_TIMECODES": 1}),
     _integ("fast-loopback", "spw_axi_top_cocotb", {"RXIMPL": 1, "TXIMPL": 1, "RXCHUNK": 4}),
     _sweep("fast-rx-chunk1", 5),
     _sweep("fast-rx-tx", 22),
