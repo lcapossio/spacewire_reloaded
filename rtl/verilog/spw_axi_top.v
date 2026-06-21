@@ -196,9 +196,12 @@ module spw_axi_top #(
         .txrdy(txrdy)
     );
 
+    // RX bridge holds its registered output across a core soft reset, so its
+    // skid stage is reset only by the AXI bus reset -- a held m_axis beat must
+    // not be retracted by CONTROL[0]. The core behind it still uses core_rst.
     spw_axis_rx axis_rx_inst (
         .clk(clk),
-        .rst(core_rst),
+        .rst(rst),
         .m_axis_tdata(m_axis_tdata),
         .m_axis_tvalid(m_axis_tvalid),
         .m_axis_tready(m_axis_tready),

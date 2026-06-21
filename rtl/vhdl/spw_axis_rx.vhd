@@ -5,6 +5,11 @@
 --
 -- SpaceWire N-Char receive to AXI-Stream bridge.
 --
+-- The output is a 1-deep registered (skid) AXI-Stream stage whose holding
+-- register is reset ONLY by the AXI bus reset (rst), so a beat already presented
+-- on m_axis survives a SpaceWire-core flush (e.g. the CONTROL[0] soft reset):
+-- TVALID stays asserted with stable payload until TREADY, as AXI-Stream requires.
+--
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -28,16 +33,38 @@ entity spw_axis_rx is
 end entity spw_axis_rx;
 
 architecture rtl of spw_axis_rx is
-    signal output_valid: std_logic;
+    signal beat_valid: std_logic := '0';
+    signal beat_flag:  std_logic := '0';
+    signal beat_data:  std_logic_vector(7 downto 0) := (others => '0');
+    signal rxread_i:   std_logic;
 begin
 
-    output_valid <= rxvalid and not rst;
+    -- Accept a char from the core RX FIFO when the holding register is empty or
+    -- is being drained this cycle (no-bubble, full throughput).
+    rxread_i <= rxvalid and ((not beat_valid) or m_axis_tready) and (not rst);
+    rxread   <= rxread_i;
 
-    m_axis_tdata    <= "0000000" & rxdata(0) when rxflag = '1' else rxdata;
-    m_axis_tvalid   <= output_valid;
-    m_axis_tlast    <= rxflag;
-    m_axis_tuser(0) <= rxflag and rxdata(0);
+    m_axis_tvalid   <= beat_valid and not rst;
+    m_axis_tlast    <= beat_flag;
+    m_axis_tuser(0) <= beat_flag and beat_data(0);
+    m_axis_tdata    <= ("0000000" & beat_data(0)) when beat_flag = '1' else beat_data;
 
-    rxread <= output_valid and m_axis_tready;
+    process (clk) is
+    begin
+        if rising_edge(clk) then
+            if rst = '1' then
+                beat_valid <= '0';
+            else
+                if m_axis_tready = '1' then
+                    beat_valid <= '0';
+                end if;
+                if rxread_i = '1' then
+                    beat_valid <= '1';
+                    beat_flag  <= rxflag;
+                    beat_data  <= rxdata;
+                end if;
+            end if;
+        end if;
+    end process;
 
 end architecture rtl;

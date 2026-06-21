@@ -166,10 +166,12 @@ begin
             txdata         => txdata,
             txrdy          => txrdy );
 
+    -- RX bridge skid stage is reset only by the AXI bus reset, so a held m_axis
+    -- beat is not retracted by a CONTROL[0] core soft reset (AXI-Stream rule).
     axis_rx_inst: entity work.spw_axis_rx
         port map (
             clk            => clk,
-            rst            => core_rst,
+            rst            => rst,
             m_axis_tdata   => m_axis_tdata,
             m_axis_tvalid  => m_axis_tvalid,
             m_axis_tready  => m_axis_tready,

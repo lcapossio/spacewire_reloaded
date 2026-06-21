@@ -56,6 +56,7 @@ class AxisStreamChecker:
         previous_payload = None
         packet_beats = 0
         stall_cycles = 0
+        held_without_handshake = False
 
         while True:
             await RisingEdge(self.clock)
@@ -70,12 +71,21 @@ class AxisStreamChecker:
                 previous_payload = None
                 packet_beats = 0
                 stall_cycles = 0
+                held_without_handshake = False
                 continue
 
             valid_value = resolved_value(self.tvalid)
             ready_value = resolved_value(self.tready)
             assert valid_value is not None, f"{self.name} TVALID unresolved outside reset"
             assert ready_value is not None, f"{self.name} TREADY unresolved outside reset"
+
+            # AXI-Stream: once TVALID is asserted it must stay asserted until the
+            # TVALID/TREADY handshake; the only exception is the bus reset (above).
+            if held_without_handshake:
+                assert valid_value == 1, (
+                    f"{self.name} TVALID deasserted before TREADY (no handshake)"
+                )
+            held_without_handshake = (valid_value == 1 and ready_value == 0)
 
             if valid_value == 0:
                 previous_payload = None
@@ -148,6 +158,7 @@ class AxiLiteSlaveChecker:
     async def run(self):
         previous_payload = {}
         stall_cycles = {}
+        held = {}
         aw_pending = False
         w_pending = False
         write_outstanding = False
@@ -165,6 +176,7 @@ class AxiLiteSlaveChecker:
                     self._assert_reset_outputs()
                 previous_payload.clear()
                 stall_cycles.clear()
+                held.clear()
                 aw_pending = False
                 w_pending = False
                 write_outstanding = False
@@ -188,6 +200,7 @@ class AxiLiteSlaveChecker:
                     payload,
                     previous_payload,
                     stall_cycles,
+                    held,
                 )
 
             aw_fire = channel_values["aw"]["fire"]
@@ -258,13 +271,23 @@ class AxiLiteSlaveChecker:
             value = resolved_value(self.signals[name])
             assert value in (0, None), f"{self.prefix}_{name} asserted during reset"
 
-    def _check_channel(self, channel, payload_names, previous_payload, stall_cycles):
+    def _check_channel(self, channel, payload_names, previous_payload, stall_cycles, held):
         valid = self.signals[f"{channel}valid"]
         ready = self.signals[f"{channel}ready"]
         valid_value = resolved_value(valid)
         ready_value = resolved_value(ready)
         assert valid_value is not None, f"{self.prefix}_{channel}valid unresolved outside reset"
         assert ready_value is not None, f"{self.prefix}_{channel}ready unresolved outside reset"
+
+        # AXI: once VALID is asserted it must stay asserted until READY. Check the
+        # slave-driven response channels (the master VALIDs are the VIP's job).
+        if channel in ("b", "r"):
+            if held.get(channel) and valid_value == 0:
+                assert False, (
+                    f"{self.prefix}_{channel}valid deasserted before {channel.upper()}READY "
+                    f"(no handshake)"
+                )
+            held[channel] = (valid_value == 1 and ready_value == 0)
 
         if valid_value == 0:
             previous_payload.pop(channel, None)
