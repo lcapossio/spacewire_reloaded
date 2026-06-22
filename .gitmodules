@@ -1,3 +1,7 @@
 [submodule "examples/arty_a7100t/fpgacapZero"]
 	path = examples/arty_a7100t/fpgacapZero
 	url = https://github.com/lcapossio/fpgacapZero
+[submodule "third_party/cocotbext-axi"]
+	path = third_party/cocotbext-axi
+	url = https://github.com/bard0-design/cocotbext-axi
+	branch = spw-protocol-compliance

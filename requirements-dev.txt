@@ -1,3 +1,8 @@
 pytest
 cocotb
-cocotbext-axi
+# AXI BFMs: fork of cocotbext-axi that adds the optional check_protocol AXI
+# handshake checker (enable for a whole run with COCOTBEXT_AXI_CHECK_PROTOCOL=1).
+# Vendored as the third_party/cocotbext-axi submodule; install it editable from
+# there. Run `git submodule update --init` first. To use upstream instead
+# (without the protocol checker), replace the line below with: cocotbext-axi
+-e ./third_party/cocotbext-axi

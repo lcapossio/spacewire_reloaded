@@ -12,9 +12,16 @@ jobs:
   axi-regression:
     runs-on: ubuntu-latest
 
+    # Enable the cocotbext-axi fork's AXI handshake protocol checker on every
+    # BFM for the whole regression (see requirements-dev.txt).
+    env:
+      COCOTBEXT_AXI_CHECK_PROTOCOL: "1"
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Python
         uses: actions/setup-python@v5

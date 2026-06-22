@@ -178,13 +178,14 @@ python build.py test --runner wsl
 python build.py vivado --dry-run
 ```
 
-Install the Python regression dependencies with:
+Fetch the submodules and install the Python regression dependencies with:
 
 ```sh
+git submodule update --init --recursive
 python -m pip install -r requirements-dev.txt
 ```
 
-`python build.py test` uses cocotb with `cocotbext-axi`. The test runner supports:
+`python build.py test` uses cocotb with `cocotbext-axi`. The regression depends on a small [fork of `cocotbext-axi`](https://github.com/bard0-design/cocotbext-axi/tree/spw-protocol-compliance) that adds an optional AXI handshake protocol checker to the BFMs. It is vendored as the [`third_party/cocotbext-axi`](third_party/cocotbext-axi) git submodule (pinning the exact fork commit) and installed editable from there by `requirements-dev.txt`. Setting `COCOTBEXT_AXI_CHECK_PROTOCOL=1` (the cocotb CI workflow does) enables the checker on every BFM in the run. To use upstream `cocotbext-axi` instead, replace the editable line in `requirements-dev.txt` with `cocotbext-axi` — the fork-specific test skips automatically. The test runner supports:
 
 - `--runner auto`: default; prefers WSL on Windows when a WSL distribution is visible, otherwise uses the local environment.
 - `--runner wsl`: run cocotb from WSL with `python3`.
@@ -205,7 +206,7 @@ Exchange-level conformance is checked directly against the transmitted character
 
 The AXI top-level suite has started to mirror the old `spwlink_tb_all` configuration sweep. The cocotb sweep preserves the original clock, divider, RX implementation, RX chunk, TX implementation, and input-rate table, then runs all 23 configurations through the AXI wrapper in both Verilog and VHDL. Loopback-compatible configurations use physical SpaceWire TX/RX loopback through the real core. The high-speed transmitter-only configurations use a cocotb SpaceWire line driver that idles through startup, sends NULLs/FCTs like the original VHDL bench, and checks TX bit timing on the DUT output pins. The external line-driver regression also injects disconnect, double-ESC, parity, and credit-error conditions and checks the AXI-visible sticky error bits, both singly and as a back-to-back burst that re-links cleanly after each of the four error types in succession.
 
-The cocotb suite also includes simulation-time AXI protocol checkers. AXI-Lite channels are checked for ready/valid payload stability under backpressure. AXI-Stream channels are checked for resolved `TVALID`/`TREADY`, resolved active payloads, stable payload while stalled, bounded stall and packet length, DUT-output `TVALID` clearing during reset, and the SpaceWire N-Char terminal-beat contract: `TLAST` marks EOP/EEP, terminal `TDATA` must be `0` or `1`, and terminal `TUSER[0]` must match the EEP code. The checkers also enforce that a DUT-driven `VALID` (m_axis `TVALID`, AXI-Lite `BVALID`/`RVALID`) never deasserts before its handshake. These are protocol invariant checks during regression, not a replacement for a future formal proof flow.
+The cocotb suite also includes simulation-time AXI protocol checkers, in two complementary layers. The first is a repo-local checker attached to the loopback and register tests: AXI-Lite channels are checked for ready/valid payload stability under backpressure; AXI-Stream channels are checked for resolved `TVALID`/`TREADY`, resolved active payloads, stable payload while stalled, bounded stall and packet length, DUT-output `TVALID` clearing during reset, and the SpaceWire N-Char terminal-beat contract: `TLAST` marks EOP/EEP, terminal `TDATA` must be `0` or `1`, and terminal `TUSER[0]` must match the EEP code. It also enforces that a DUT-driven `VALID` (m_axis `TVALID`, AXI-Lite `BVALID`/`RVALID`) never deasserts before its handshake. The second layer is the `cocotbext-axi` fork's built-in handshake checker (`check_protocol`): with `COCOTBEXT_AXI_CHECK_PROTOCOL=1` it rides along inside every BFM for the whole run — including the external-line, strict-TimeCode, and configuration-sweep tests, which the repo-local checker does not attach to — and enforces the generic AXI handshake contract (VALID held until handshake, payload stable while stalled, resolved control) on each channel the DUT drives. The `spw_axi_top_fork_check` regression proves the fork checker catches the soft-reset `TVALID`-retraction violation on the real DUT in both languages (it fails with the pre-fix RTL, passes with the register-slice bridge). These are protocol invariant checks during regression, not a replacement for a future formal proof flow.
 
 The receive bridge (`spw_axis_rx`) presents `m_axis` through a 1-deep registered (skid) stage whose holding register is reset only by the AXI bus reset, not by the `CONTROL[0]` core soft reset. This keeps AXI-Stream compliant when software soft-resets the core mid-stream: a beat already presented on `m_axis` holds (`TVALID` asserted, payload stable) until `TREADY`, rather than being retracted by the core RX-FIFO flush. The `m_axis_tvalid_not_retracted_by_soft_reset` regression covers it in both languages.
 

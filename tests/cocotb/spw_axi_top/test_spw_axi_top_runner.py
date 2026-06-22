@@ -10,6 +10,20 @@ import pytest
 from tests.cocotb.cocotb_runner import ROOT, run_ghdl, run_icarus
 
 
+def _fork_check_supported():
+    """True only when the installed cocotbext-axi is the fork carrying the
+    check_protocol handshake checker (see requirements-dev.txt)."""
+    import inspect
+    try:
+        from cocotbext.axi.stream import StreamBase
+        return "check_protocol" in inspect.signature(StreamBase.__init__).parameters
+    except Exception:
+        return False
+
+
+FORK_CHECK_SUPPORTED = _fork_check_supported()
+
+
 VERILOG_RTL = [
     "rtl/verilog/syncdff.v",
     "rtl/verilog/spwram.v",
@@ -185,6 +199,19 @@ def test_spw_axi_top_axis_soft_reset_verilog():
     )
 
 
+@pytest.mark.skipif(not FORK_CHECK_SUPPORTED,
+                    reason="requires the cocotbext-axi fork with check_protocol")
+def test_spw_axi_top_fork_check_verilog():
+    test_dir = Path(__file__).resolve().parent
+    run_icarus(
+        top="spw_axi_top_loop_tb",
+        test_module="spw_axi_top_fork_check_cocotb",
+        verilog_sources=[*(ROOT / path for path in VERILOG_RTL), test_dir / "spw_axi_top_loop_tb.v"],
+        test_dir=test_dir,
+        build_dir=ROOT / "build" / "cocotb" / "spw_axi_top_fork_check_verilog",
+    )
+
+
 @pytest.mark.parametrize("case", LOOPBACK_SWEEP_CASES, ids=lambda case: f"spwlink{case['id']:02d}")
 def test_spw_axi_top_spwlink_sweep_verilog(case):
     test_dir = Path(__file__).resolve().parent
@@ -294,6 +321,19 @@ def test_spw_axi_top_axis_soft_reset_vhdl():
         vhdl_sources=[*(ROOT / path for path in VHDL_RTL), test_dir / "spw_axi_top_loop_tb.vhd"],
         test_dir=test_dir,
         build_dir=ROOT / "build" / "cocotb" / "spw_axi_top_axis_reset_vhdl",
+    )
+
+
+@pytest.mark.skipif(not FORK_CHECK_SUPPORTED,
+                    reason="requires the cocotbext-axi fork with check_protocol")
+def test_spw_axi_top_fork_check_vhdl():
+    test_dir = Path(__file__).resolve().parent
+    run_ghdl(
+        top="spw_axi_top_loop_tb",
+        test_module="spw_axi_top_fork_check_cocotb",
+        vhdl_sources=[*(ROOT / path for path in VHDL_RTL), test_dir / "spw_axi_top_loop_tb.vhd"],
+        test_dir=test_dir,
+        build_dir=ROOT / "build" / "cocotb" / "spw_axi_top_fork_check_vhdl",
     )
 
 
