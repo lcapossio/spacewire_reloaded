@@ -2,6 +2,7 @@
 # Copyright (C) 2026 Leonardo Capossio - bard0 design
 # Author: Leonardo Capossio - bard0 design - hello@bard0.com
 
+import inspect
 import os
 
 import cocotb
@@ -15,6 +16,19 @@ from cocotbext.axi import (
     AxiStreamSink,
     AxiStreamSource,
 )
+
+
+def _fork_check_supported():
+    """True only when the installed cocotbext-axi is the fork carrying the
+    check_protocol handshake checker (third_party/cocotbext-axi submodule)."""
+    try:
+        from cocotbext.axi.stream import StreamBase
+        return "check_protocol" in inspect.signature(StreamBase.__init__).parameters
+    except Exception:
+        return False
+
+
+FORK_CHECK_SUPPORTED = _fork_check_supported()
 
 
 REG_CONTROL = 0x08
@@ -700,6 +714,52 @@ async def axi_top_external_line_truncated_packet_emits_eep(dut):
     frame = await with_timeout(sink.recv(), 400, "us")
     assert last_user_bit(frame) == 1, "truncated packet must end in EEP (tuser=1)"
     await wait_not_running(axil, dut.clk)
+
+
+@cocotb.test(skip=not FORK_CHECK_SUPPORTED)
+async def axi_top_external_line_m_axis_held_survives_disconnect(dut):
+    """A held m_axis beat (TVALID=1, TREADY=0) must not be retracted when the
+    SpaceWire link drops mid-packet under downstream backpressure. Distinct from
+    the soft-reset case (spw_axi_top_fork_check): a link error does not flush the
+    core RX FIFO or assert the core soft reset, so this verifies the invariant
+    holds across a real external-line error event, not just a CSR flush. The
+    cocotbext-axi fork's check_protocol handshake checker on the m_axis sink is
+    the sole judge: it fails the test if TVALID drops or the payload changes
+    before the handshake. The held beat is later drained with the EEP that
+    terminates the truncated packet."""
+    sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "m_axis"), dut.clk, dut.rst,
+                         check_protocol=True)
+    sink.pause = True  # downstream backpressure: hold TREADY low
+    axil, line = await setup_default_external_dut(dut)
+
+    # Data chars with no EOP -> a packet is in progress and a beat is presented
+    # on m_axis. Keep the line active with NULLs so it does not disconnect early.
+    for value in (0x71, 0x72, 0x73):
+        await line.data_char(value)
+    null_task = cocotb.start_soon(line.null_stream())
+    for _ in range(20000):
+        await RisingEdge(dut.clk)
+        if int(dut.m_axis_tvalid.value) == 1:
+            break
+    null_task.kill()
+
+    assert int(dut.m_axis_tvalid.value) == 1, "no held m_axis beat to test"
+    assert int(dut.m_axis_tready.value) == 0, "sink should be backpressuring"
+    assert int(dut.rst.value) == 0, "bus reset must be deasserted"
+
+    # Drop the link mid-packet while the beat is held; the fork checker watches
+    # m_axis every cycle through the error and the EEP termination.
+    line.reset()
+    for _ in range(200):
+        await RisingEdge(dut.clk)
+        if int(dut.rst.value) != 0 or int(dut.m_axis_tready.value) == 1:
+            break
+    await wait_not_running(axil, dut.clk)  # confirm the link actually dropped
+
+    # Release backpressure and drain: the truncated packet ends with an EEP.
+    sink.pause = False
+    frame = await with_timeout(sink.recv(), 400, "us")
+    assert last_user_bit(frame) == 1, "truncated packet must end in EEP (tuser=1)"
 
 
 def nchar_frame(payload, terminator=0x00):
