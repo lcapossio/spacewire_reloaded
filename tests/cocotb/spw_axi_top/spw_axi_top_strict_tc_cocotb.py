@@ -14,6 +14,8 @@ from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge
 from cocotbext.axi import AxiLiteBus, AxiLiteMaster
 
+from tests.cocotb.axi_backpressure import backpressure_axil
+
 
 REG_CONTROL = 0x08
 REG_STATUS = 0x0C
@@ -76,6 +78,7 @@ async def strict_timecodes_emit_only_in_sequence(dut):
     await reset_dut(dut)
 
     axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
+    backpressure_axil(axil)  # exercise the fork's B/R handshake checker under stall
     await axil.write_dword(REG_TXDIVCNT, 0x00000001)
     await axil.write_dword(REG_CONTROL, 0x00000006)
     await wait_running(axil)

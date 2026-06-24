@@ -8,6 +8,8 @@ import cocotb
 from cocotb.triggers import RisingEdge, Timer, with_timeout
 from cocotbext.axi import AxiLiteBus, AxiLiteMaster, AxiStreamBus, AxiStreamFrame, AxiStreamSink, AxiStreamSource
 
+from tests.cocotb.axi_backpressure import backpressure_axil, backpressure_axis_sink, backpressure_axis_source
+
 
 REG_CONTROL = 0x08
 REG_STATUS = 0x0C
@@ -99,6 +101,11 @@ async def axi_top_spwlink_configuration_smoke(dut):
     axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
     source = AxiStreamSource(AxiStreamBus.from_prefix(dut, "s_axis"), dut.clk, dut.rst)
     sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "m_axis"), dut.clk, dut.rst)
+    # Backpressure every channel so the fork's check_protocol handshake checker
+    # exercises VALID-held-until-handshake across the whole clock/impl matrix.
+    backpressure_axil(axil)
+    backpressure_axis_source(source)
+    backpressure_axis_sink(sink)
 
     await axil.write_dword(REG_TXDIVCNT, tx_div & 0xFF)
     await axil.write_dword(REG_CONTROL, 0x00000006)
