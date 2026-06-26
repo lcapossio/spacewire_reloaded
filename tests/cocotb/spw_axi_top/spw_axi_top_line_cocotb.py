@@ -17,6 +17,8 @@ from cocotbext.axi import (
     AxiStreamSource,
 )
 
+from tests.cocotb.axi_protocol_assertions import start_axil_assertions, start_axis_assertions
+
 
 def _fork_check_supported():
     """True only when the installed cocotbext-axi is the fork carrying the
@@ -438,6 +440,9 @@ async def setup_default_external_dut(dut):
     line = SpaceWireLineDriver(dut.spw_di_ext, dut.spw_si_ext, input_rate)
     line.reset()
     axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
+    # AXI-Lite transaction checks (RESP=OKAY, response-after-request, latency)
+    # ride along on the external-line tests too, alongside the fork checker.
+    start_axil_assertions(cocotb, dut)
     await start_external_link(dut, axil, line, tx_div=tx_div)
     return axil, line
 
@@ -580,6 +585,10 @@ async def axi_top_external_line_functional_coverage(dut):
     line.reset()
     axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
     sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "m_axis"), dut.clk, dut.rst)
+    # Full passive checks on the richest external-line RX scenario: AXI-Lite
+    # transaction/RESP plus the m_axis SpaceWire EOP/EEP terminal-beat contract.
+    start_axil_assertions(cocotb, dut)
+    start_axis_assertions(cocotb, dut, "m_axis", reset_must_clear_valid=True, max_stall_cycles=None)
 
     # --- bring-up: started -> connecting -> running ---
     await axil.write_dword(REG_TXDIVCNT, tx_div & 0xFF)

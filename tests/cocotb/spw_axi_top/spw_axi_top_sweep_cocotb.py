@@ -9,6 +9,7 @@ from cocotb.triggers import RisingEdge, Timer, with_timeout
 from cocotbext.axi import AxiLiteBus, AxiLiteMaster, AxiStreamBus, AxiStreamFrame, AxiStreamSink, AxiStreamSource
 
 from tests.cocotb.axi_backpressure import backpressure_axil, backpressure_axis_sink, backpressure_axis_source
+from tests.cocotb.axi_protocol_assertions import start_axil_assertions, start_axis_assertions
 
 
 REG_CONTROL = 0x08
@@ -106,6 +107,11 @@ async def axi_top_spwlink_configuration_smoke(dut):
     backpressure_axil(axil)
     backpressure_axis_source(source)
     backpressure_axis_sink(sink)
+    # Transaction-level + RESP=OKAY + SpaceWire EOP/EEP checks ride along too, not
+    # just the fork's handshake checker, across the whole clock/impl matrix.
+    start_axil_assertions(cocotb, dut)
+    start_axis_assertions(cocotb, dut, "s_axis", max_stall_cycles=None)
+    start_axis_assertions(cocotb, dut, "m_axis", reset_must_clear_valid=True, max_stall_cycles=None)
 
     await axil.write_dword(REG_TXDIVCNT, tx_div & 0xFF)
     await axil.write_dword(REG_CONTROL, 0x00000006)

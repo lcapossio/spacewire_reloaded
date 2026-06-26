@@ -15,6 +15,7 @@ from cocotb.triggers import RisingEdge
 from cocotbext.axi import AxiLiteBus, AxiLiteMaster
 
 from tests.cocotb.axi_backpressure import backpressure_axil
+from tests.cocotb.axi_protocol_assertions import start_axil_assertions
 
 
 REG_CONTROL = 0x08
@@ -79,6 +80,7 @@ async def strict_timecodes_emit_only_in_sequence(dut):
 
     axil = AxiLiteMaster(AxiLiteBus.from_prefix(dut, "s_axi"), dut.clk, dut.rst)
     backpressure_axil(axil)  # exercise the fork's B/R handshake checker under stall
+    start_axil_assertions(cocotb, dut)  # RESP=OKAY, response-after-request, latency
     await axil.write_dword(REG_TXDIVCNT, 0x00000001)
     await axil.write_dword(REG_CONTROL, 0x00000006)
     await wait_running(axil)
