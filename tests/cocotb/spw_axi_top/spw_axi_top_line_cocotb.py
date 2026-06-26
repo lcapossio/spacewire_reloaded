@@ -725,47 +725,82 @@ async def axi_top_external_line_truncated_packet_emits_eep(dut):
     await wait_not_running(axil, dut.clk)
 
 
-@cocotb.test(skip=not FORK_CHECK_SUPPORTED)
-async def axi_top_external_line_m_axis_held_survives_disconnect(dut):
-    """A held m_axis beat (TVALID=1, TREADY=0) must not be retracted when the
-    SpaceWire link drops mid-packet under downstream backpressure. Distinct from
-    the soft-reset case (spw_axi_top_fork_check): a link error does not flush the
-    core RX FIFO or assert the core soft reset, so this verifies the invariant
-    holds across a real external-line error event, not just a CSR flush. The
-    cocotbext-axi fork's check_protocol handshake checker on the m_axis sink is
-    the sole judge: it fails the test if TVALID drops or the payload changes
-    before the handshake. The held beat is later drained with the EEP that
-    terminates the truncated packet."""
+async def _bring_up_and_hold_m_axis_beat(dut, prep_chars=(0x71, 0x72, 0x73)):
+    """Bring up the external link and present an N-Char beat on a paused
+    (check_protocol=True) m_axis sink under downstream backpressure, returning
+    (axil, line, sink) with the beat held (TVALID=1, TREADY=0). The fork's
+    handshake checker on the sink is the judge for whatever error the caller
+    injects next: it fails if TVALID drops or the payload changes before the
+    handshake. Uses inline NULLs (not a background stream) so the line driver is
+    left at a clean NULL/parity boundary before the caller's error trigger."""
     sink = AxiStreamSink(AxiStreamBus.from_prefix(dut, "m_axis"), dut.clk, dut.rst,
                          check_protocol=True)
     sink.pause = True  # downstream backpressure: hold TREADY low
     axil, line = await setup_default_external_dut(dut)
-
-    # Data chars with no EOP -> a packet is in progress and a beat is presented
-    # on m_axis. Keep the line active with NULLs so it does not disconnect early.
-    for value in (0x71, 0x72, 0x73):
+    for value in prep_chars:  # data chars, no EOP -> a packet is in progress
         await line.data_char(value)
-    null_task = cocotb.start_soon(line.null_stream())
-    for _ in range(20000):
-        await RisingEdge(dut.clk)
+    for _ in range(2000):     # keep the line active until the beat is presented
         if int(dut.m_axis_tvalid.value) == 1:
             break
-    null_task.kill()
-
+        await line.null()
     assert int(dut.m_axis_tvalid.value) == 1, "no held m_axis beat to test"
     assert int(dut.m_axis_tready.value) == 0, "sink should be backpressuring"
     assert int(dut.rst.value) == 0, "bus reset must be deasserted"
+    return axil, line, sink
 
-    # Drop the link mid-packet while the beat is held; the fork checker watches
-    # m_axis every cycle through the error and the EEP termination.
-    line.reset()
-    for _ in range(200):
-        await RisingEdge(dut.clk)
-        if int(dut.rst.value) != 0 or int(dut.m_axis_tready.value) == 1:
-            break
-    await wait_not_running(axil, dut.clk)  # confirm the link actually dropped
 
-    # Release backpressure and drain: the truncated packet ends with an EEP.
+@cocotb.test(skip=not FORK_CHECK_SUPPORTED)
+async def axi_top_external_line_m_axis_held_survives_disconnect(dut):
+    """A held m_axis beat must not be retracted when the link drops mid-packet.
+    Distinct from the soft-reset case (spw_axi_top_fork_check): a link error does
+    not flush the core RX FIFO or assert the core soft reset, so this verifies
+    the invariant holds across a real external-line error, not just a CSR flush.
+    The held beat is later drained with the EEP that terminates the packet."""
+    axil, line, sink = await _bring_up_and_hold_m_axis_beat(dut)
+    line.reset()  # drop the link mid-packet; fork checker watches m_axis throughout
+    await wait_not_running(axil, dut.clk)
+    sink.pause = False
+    frame = await with_timeout(sink.recv(), 400, "us")
+    assert last_user_bit(frame) == 1, "truncated packet must end in EEP (tuser=1)"
+
+
+@cocotb.test(skip=not FORK_CHECK_SUPPORTED)
+async def axi_top_external_line_m_axis_held_survives_parity_error(dut):
+    """A held m_axis beat must survive a receive parity error (errpar)."""
+    axil, line, sink = await _bring_up_and_hold_m_axis_beat(dut)
+    await line.data_char(0xAA, bad_parity=True)  # parity error terminates the link
+    assert (await wait_error(axil, dut.clk, ERR_PAR)) & ERR_PAR
+    await wait_not_running(axil, dut.clk)
+    sink.pause = False
+    frame = await with_timeout(sink.recv(), 400, "us")
+    assert last_user_bit(frame) == 1, "truncated packet must end in EEP (tuser=1)"
+
+
+@cocotb.test(skip=not FORK_CHECK_SUPPORTED)
+async def axi_top_external_line_m_axis_held_survives_escape_error(dut):
+    """A held m_axis beat must survive an illegal-escape error (erresc)."""
+    axil, line, sink = await _bring_up_and_hold_m_axis_beat(dut)
+    await line.esc()
+    await line.eop(eep=False)  # ESC+EOP is an illegal escape -> erresc
+    for _ in range(4):
+        await line.null()  # keep the line active so the escaped EOP is decoded
+    assert (await wait_error(axil, dut.clk, ERR_ESC)) & ERR_ESC
+    await wait_not_running(axil, dut.clk)
+    sink.pause = False
+    frame = await with_timeout(sink.recv(), 400, "us")
+    assert last_user_bit(frame) == 1, "truncated packet must end in EEP (tuser=1)"
+
+
+@cocotb.test(skip=not FORK_CHECK_SUPPORTED)
+async def axi_top_external_line_m_axis_held_survives_credit_error(dut):
+    """A held m_axis beat must survive a receive credit error (errcred). With
+    m_axis never drained the RX FIFO fills, so sending more N-Chars than the
+    granted credit raises errcred while the first beat stays held."""
+    axil, line, sink = await _bring_up_and_hold_m_axis_beat(dut)
+    for index in range(70):  # > the ~56 chars granted by the startup FCTs
+        await line.data_char(index & 0xFF)
+    assert (await wait_error(axil, dut.clk, ERR_CRED)) & ERR_CRED
+    await wait_not_running(axil, dut.clk)
     sink.pause = False
     frame = await with_timeout(sink.recv(), 400, "us")
     assert last_user_bit(frame) == 1, "truncated packet must end in EEP (tuser=1)"

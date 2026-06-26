@@ -525,3 +525,80 @@ async def axi_lite_partial_byte_strobes(dut):
     await manual_write_aw_then_w(dut, REG_TIMECODE_RX, 0x80000000, wstrb=0x2, w_delay=3)
     # ERROR clear needs strb[0]; strb[1] alone must not clear.
     await manual_write_aw_then_w(dut, REG_ERROR, 0x0000000F, wstrb=0x2, w_delay=3)
+
+
+@cocotb.test()
+async def axi_lite_response_valid_does_not_wait_for_ready(dut):
+    """AXI requires VALID not to depend on READY: the slave must raise BVALID /
+    RVALID from its own state, independent of (and before) the master asserting
+    BREADY / RREADY. Drive a write and a read with the response READY held low
+    and confirm the response VALID rises anyway. This is the behavioural form of
+    the "VALID must not wait for READY" rule; a full no-combinational-path proof
+    needs lint/formal, which event-based simulation cannot provide."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    initialize_manual_axil_signals(dut)
+    await reset_dut(dut)
+    start_common_assertions(dut)
+
+    # Write: complete AW and W with BREADY held low; BVALID must still rise.
+    dut.s_axi_bready.value = 0
+    dut.s_axi_awaddr.value = REG_IRQ_ENABLE
+    dut.s_axi_awvalid.value = 1
+    await wait_handshake(dut, dut.s_axi_awvalid, dut.s_axi_awready, "AW")
+    dut.s_axi_awvalid.value = 0
+    dut.s_axi_wdata.value = 0xDEADBEEF
+    dut.s_axi_wstrb.value = 0xF
+    dut.s_axi_wvalid.value = 1
+    await wait_handshake(dut, dut.s_axi_wvalid, dut.s_axi_wready, "W")
+    dut.s_axi_wvalid.value = 0
+    await wait_signal_high(dut, dut.s_axi_bvalid, "BVALID with BREADY=0")
+    assert value(dut.s_axi_bready) == 0, "test must keep BREADY low"
+    assert value(dut.s_axi_bvalid) == 1, "BVALID must not wait for BREADY"
+    dut.s_axi_bready.value = 1  # now complete the write
+    await RisingEdge(dut.clk)
+    dut.s_axi_bready.value = 0
+
+    # Read: assert AR with RREADY held low; RVALID must still rise.
+    dut.s_axi_rready.value = 0
+    dut.s_axi_araddr.value = REG_IRQ_ENABLE
+    dut.s_axi_arvalid.value = 1
+    await wait_handshake(dut, dut.s_axi_arvalid, dut.s_axi_arready, "AR")
+    dut.s_axi_arvalid.value = 0
+    await wait_signal_high(dut, dut.s_axi_rvalid, "RVALID with RREADY=0")
+    assert value(dut.s_axi_rready) == 0, "test must keep RREADY low"
+    assert value(dut.s_axi_rvalid) == 1, "RVALID must not wait for RREADY"
+    assert value(dut.s_axi_rdata) == 0xDEADBEEF
+    dut.s_axi_rready.value = 1  # now complete the read
+    await RisingEdge(dut.clk)
+    dut.s_axi_rready.value = 0
+
+
+@cocotb.test()
+async def axi_lite_wstrb_honored_for_all_patterns(dut):
+    """Exhaustive WSTRB honoring: for every one of the 16 byte-strobe masks, a
+    write to the byte-writable IRQ_ENABLE register must update exactly the
+    strobed byte lanes and leave the others unchanged. A software scoreboard
+    tracks the expected value and the register is read back after each masked
+    write (covers contiguous and sparse strobe patterns)."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    initialize_manual_axil_signals(dut)
+    await reset_dut(dut)
+    start_common_assertions(dut)
+
+    model = 0xA5C3F00F
+    await manual_write_aw_then_w(dut, REG_IRQ_ENABLE, model, wstrb=0xF, w_delay=2)
+    assert await manual_read_dword(dut, REG_IRQ_ENABLE) == model
+
+    for strb in range(16):
+        # A distinct write value per pattern so a wrong lane is visible.
+        wval = ((0x10 + strb) * 0x01010101) ^ 0x0F1E2D3C
+        wval &= 0xFFFFFFFF
+        await manual_write_aw_then_w(dut, REG_IRQ_ENABLE, wval, wstrb=strb, w_delay=2)
+        for lane in range(4):
+            if strb & (1 << lane):
+                mask = 0xFF << (8 * lane)
+                model = (model & ~mask) | (wval & mask)
+        got = await manual_read_dword(dut, REG_IRQ_ENABLE)
+        assert got == model, (
+            f"wstrb={strb:#03x}: read {got:#010x}, expected {model:#010x}"
+        )
