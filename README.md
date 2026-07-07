@@ -2,122 +2,82 @@
 
 Author: Leonardo Capossio - bard0 design - hello@bard0.com - 2026
 
-SpaceWire Reloaded is a planned LGPL continuation and cleanup of the SpaceWire Light core by Joris van Rantwijk. The project goal is to keep the useful SpaceWire encoder/decoder architecture while replacing the GRLIB-dependent AMBA integration with an LGPL-compatible AMBA/AXI implementation owned by this repository.
+SpaceWire Reloaded is a vendor-neutral SpaceWire link core with AXI4-Lite and AXI4-Stream interfaces, maintained in both VHDL and Verilog and verified in simulation and on FPGA hardware. It is a continuation of Joris van Rantwijk's **SpaceWire Light**: the proven SpaceWire encoder/decoder architecture is kept, the GRLIB-dependent (GPL) AMBA integration is replaced by a from-scratch AXI layer, and the entire core — bus interfaces included — is licensed **LGPL-2.1-or-later**.
 
-The original SpaceWire Light source tree has been imported as a baseline. The imported source has not been modified as part of the initial import.
+The core implements the SpaceWire link layer: data-strobe (DS) encoding, link initialisation and disconnect, credit-based flow control, N-Chars, and TimeCodes. Around it, an AXI4-Lite block exposes control, status, interrupt, and TimeCode registers, while an AXI4-Stream pair moves SpaceWire N-Chars in and out. A complete Arty A7-100T design runs a link in loopback and is validated over JTAG.
 
 ## Index
 
-- [Project Goals](#project-goals)
-- [License Direction](#license-direction)
-- [Original Project README](#original-project-readme)
-- [Imported Baseline](#imported-baseline)
-- [Planned Features](#planned-features)
-- [AMBA/AXI Porting Plan](#ambaaxi-porting-plan)
-- [Current AXI Work](#current-axi-work)
-- [How to Use and Test](#how-to-use-and-test)
-- [Hardware Example: Arty A7-100T Loopback](#hardware-example-arty-a7-100t-loopback)
+- [Relationship to SpaceWire Light](#relationship-to-spacewire-light)
+- [Features](#features)
+- [Repository Layout](#repository-layout)
+- [System Architecture](#system-architecture)
+- [Clock-Domain Crossing and Constraints](#clock-domain-crossing-and-constraints)
+- [AXI-Lite Register Map](#axi-lite-register-map)
+- [Building and Testing](#building-and-testing)
+- [Verification](#verification)
+- [Hardware Example: Arty A7-100T](#hardware-example-arty-a7-100t)
 - [FPGA Resource Usage and Timing](#fpga-resource-usage-and-timing)
-- [Author and License](#author-and-license)
+- [License and Credits](#license-and-credits)
 
-## Project Goals
+## Relationship to SpaceWire Light
 
-- Preserve a small, portable SpaceWire link core suitable for FPGA designs.
-- Keep the full core, including bus interfaces, under an LGPL-compatible license.
-- Remove dependency on GPL-only GRLIB AMBA wrapper code.
-- Provide clean, vendor-neutral RTL wrappers for architecture-specific resources such as FIFOs and RAMs.
-- Build an OS-agnostic Python-based flow for linting, simulation, regression, and FPGA builds.
-- Provide CI with GitHub Actions covering linting, Verilog and VHDL simulation, cocotb AXI regression, and Verilator coverage.
+SpaceWire Reloaded builds directly on SpaceWire Light by Joris van Rantwijk (2009-2013). The link-layer RTL — `spwlink`, `spwrecv`, `spwxmit`/`spwxmit_fast`, the selectable receive front ends, and the `spwstream` FIFO wrapper — descends from that project and keeps its architecture and behaviour.
 
-## License Direction
+What this project changes and adds:
 
-The intended license for this repository is LGPL. The AMBA/AXI implementation will be written for this project instead of importing GPL GRLIB-dependent source. Any imported upstream files must be reviewed before inclusion so that license provenance remains clear.
+- **Clean licensing.** The GRLIB-dependent AMBA integration and the LEON3/SPWAMBA examples, which pulled in GPL GRLIB source, are removed. A new AXI integration layer is written from scratch for this repository, so the whole tree is LGPL-2.1-or-later with clear provenance.
+- **A Verilog core.** The VHDL RTL has a parity-checked Verilog-2001 translation; both languages are maintained together and cross-checked.
+- **AXI interfaces.** An AXI4-Lite register block and an AXI4-Stream N-Char data path (dedicated TX and RX bridges) replace the removed AMBA layer.
+- **Vendor-neutral integration.** RAM, FIFO, reset, and clock-domain-crossing primitives are wrapped behind portable modules with multi-vendor synthesis attributes and constraint templates.
+- **A modern flow.** A Python build/lint/test entry point, GitHub Actions CI, a dual-language cocotb regression, Verilator coverage, synthesis resource reports, and an on-hardware FPGA example.
 
-This repository includes the LGPL license text for the active source tree. Historical GPL references remain only in the preserved upstream README so the removed GRLIB-dependent AMBA context stays visible without licensing the current source as GPL.
+The original upstream README is preserved verbatim as [README.spacewire_light.md](README.spacewire_light.md); it retains the historical GPL/GRLIB context so the reason for the replacement work stays visible. Those historical GPL references apply only to the removed upstream integration — the current source tree is LGPL.
 
-## Original Project README
+## Features
 
-The original SpaceWire Light README is preserved as [README.spacewire_light.md](README.spacewire_light.md). It documents the upstream project history, original architecture, licensing notes, GRLIB-dependent AMBA interface, and prior Verilog translation work.
+- **SpaceWire link layer** — DS encode/decode, the link start/connect/run state machine, disconnect detection, credit-based flow control, N-Chars, and TimeCodes.
+- **Selectable front ends** — a generic system-clock receiver and transmitter, plus an oversampled "fast" receiver and a dedicated-clock "fast" transmitter, chosen per instance.
+- **Dual language** — VHDL and Verilog-2001, kept in parity with trace, waveform, and manifest cross-checks in CI.
+- **AXI4-Lite register block** — link control, live status, sticky errors, interrupts, and TimeCode TX/RX in a 64-byte aperture.
+- **AXI4-Stream N-Char path** — TX (sink) and RX (source) bridges that preserve SpaceWire's explicit EOP/EEP characters instead of hiding them in the data byte.
+- **Bus-neutral internal split** — the SpaceWire core keeps a simple control/data interface, so further wrappers (AHB/APB, an AXI-DMA data path) can be added without touching the core.
+- **Vendor-neutral CDC** — two-flop synchronisers carrying Xilinx/Intel/Lattice/Synplify attributes, with Vivado/Quartus/Lattice constraint templates.
+- **Verification** — a dual-language cocotb regression, two-layer AXI protocol checking, SpaceWire exchange-level conformance checks, explicit functional coverage, and Verilator line/branch/expression/toggle coverage.
+- **Hardware example** — an Arty A7-100T loopback design (Verilog and VHDL) validated over JTAG.
 
-This top-level README is intentionally new and describes the SpaceWire Reloaded project direction.
+## Repository Layout
 
-## Imported Baseline
+- `rtl/vhdl`, `rtl/verilog` — the SpaceWire core and AXI wrappers in both languages.
+- `bench`, `sim`, `parity` — test benches, simulation setups, and VHDL/Verilog parity material.
+- `tests/cocotb` — the cocotb AXI and SpaceWire conformance regression.
+- `constraints` — vendor CDC constraint templates.
+- `syn`, `scripts` — synthesis wrappers and the resource-report and parity scripts.
+- `examples/arty_a7100t` — the Arty A7-100T hardware example.
+- `doc` — the preserved SpaceWire Light manual and architecture documentation.
+- `third_party/cocotbext-axi` — vendored AXI BFM fork (git submodule).
 
-The current tree includes the upstream SpaceWire Light RTL, benches, simulations, documentation, synthesis examples, software support files, scripts, parity material, CI workflows, and LGPL license text.
-
-The imported GRLIB-dependent implementation files and LEON3/SPWAMBA support examples have been removed from this repository. Historical references remain in the preserved upstream README so the reason for the replacement work is still visible.
-
-Important imported areas:
-
-- `rtl/vhdl`: original VHDL RTL after removal of the GRLIB-dependent AMBA files.
-- `rtl/verilog`: Verilog 2001 translation of the standalone non-GRLIB core.
-- `bench`: VHDL and Verilog test benches.
-- `sim`: simulation setups.
-- `syn`: synthesis example projects.
-- `sw`: software and driver examples.
-- `doc`: manual and architecture documentation.
-- `scripts`: Python helper scripts.
-- `parity`: translation and parity verification material.
-
-The planned replacement AMBA/AXI implementation must be LGPL-compatible and must not import GPL GRLIB source.
-
-## Planned Features
-
-- SpaceWire encoder/decoder core.
-- FIFO-style streaming application interface.
-- LGPL AMBA AHB/APB integration layer.
-- LGPL AXI4-Lite register interface.
-- Optional AXI4 or AXI4-Stream data movement interface, to be selected after the architecture is documented.
-- Register map with register 0 as a core identifier and the next register as a version register.
-- Portable wrappers for RAM, FIFO, reset, and clock-domain crossing primitives.
-- Lint, simulation, and regression targets runnable from a clean checkout.
-
-## AMBA/AXI Porting Plan
-
-1. Document the standalone SpaceWire Light interfaces and the removed GRLIB-dependent AMBA behavior from preserved upstream documentation and history.
-2. Define a bus-neutral internal control/data interface for the SpaceWire core.
-3. Implement LGPL bus wrappers around that internal interface:
-   - AHB/APB wrapper for AMBA-style systems.
-   - AXI4-Lite wrapper for control and status.
-   - AXI data path option after DMA requirements are settled.
-4. Build self-checking simulations for register access, DMA/data movement, interrupt behavior, reset behavior, and error paths.
-5. Add lint and regression targets before FPGA build flows.
-6. Add FPGA build examples only after simulation coverage is in place.
-
-## Current AXI Work
-
-The first LGPL AXI replacement slice is in progress:
-
-- `rtl/vhdl/spw_axi_lite_regs.vhd`: AXI4-Lite control/status register block.
-- `rtl/vhdl/spw_axis_tx.vhd`: AXI-Stream to SpaceWire N-Char TX bridge.
-- `rtl/vhdl/spw_axis_rx.vhd`: SpaceWire N-Char RX to AXI-Stream bridge.
-- `rtl/vhdl/spw_axi_top.vhd`: VHDL top-level wrapper around `spwstream`.
-- `rtl/verilog/spw_axi_lite_regs.v`: Verilog AXI4-Lite register block.
-- `rtl/verilog/spw_axis_tx.v`: Verilog AXI-Stream TX bridge.
-- `rtl/verilog/spw_axis_rx.v`: Verilog AXI-Stream RX bridge.
-- `rtl/verilog/spw_axi_top.v`: Verilog top-level wrapper used by the local cocotb/Icarus integration regression.
-
-### System Architecture
+## System Architecture
 
 [![SpaceWire Reloaded AXI system architecture](docs/architecture.svg)](docs/architecture.svg)
 
-The first AXI wrapper keeps the original `spwstream` data/control split: AXI4-Lite owns CSRs, IRQ, link control, and timecodes, while AXI-Stream carries SpaceWire N-Chars through dedicated TX and RX bridges. The diagram opens `spwstream` one level deeper to show the link controller, receiver, selectable RX/TX front ends, and RX/TX RAM-backed N-Char FIFOs.
+The AXI wrapper keeps the original `spwstream` data/control split: AXI4-Lite owns CSRs, IRQ, link control, and TimeCodes, while AXI-Stream carries SpaceWire N-Chars through dedicated TX and RX bridges. The diagram opens `spwstream` one level deeper to show the link controller, receiver, selectable RX/TX front ends, and RX/TX RAM-backed N-Char FIFOs.
 
-The AXI-Stream data path is currently an N-Char stream:
+The AXI-Stream data path is an N-Char stream:
 
 - `tdata[7:0]` carries a data byte, EOP code, or EEP code.
 - `tlast` is asserted on EOP/EEP control characters.
 - `tuser[0]` is meaningful only when `tlast` is asserted: `0` selects EOP, and `1` selects EEP.
 
-This preserves SpaceWire's explicit EOP/EEP characters and avoids hiding them inside the previous data byte.
+This preserves SpaceWire's explicit EOP/EEP characters and avoids hiding them inside the data byte.
 
-### Clock-Domain Crossing and Timing Constraints
+## Clock-Domain Crossing and Constraints
 
-The core runs three clocks: the system clock `clk`, the receive sample clock `rxclk`, and the transmit bit clock `txclk`. Every crossing between them passes through the two-flip-flop `syncdff` synchronizer. The receive buffer head pointer is gray-coded before it crosses from `rxclk` to `clk`, so the system domain can never sample an illegal intermediate pointer value while the pointer increments; the activity counter crosses as binary on purpose because it is only change-detected. The synchronizer flip-flops carry vendor-neutral attributes (`ASYNC_REG` for Xilinx, `syn_preserve`/`syn_srlstyle` for Synplify/Lattice, `preserve` for Intel, plus `keep`) so the same RTL builds correctly across vendors.
+The core runs three clocks: the system clock `clk`, the receive sample clock `rxclk`, and the transmit bit clock `txclk`. Every crossing between them passes through the two-flip-flop `syncdff` synchroniser. The receive buffer head pointer is gray-coded before it crosses from `rxclk` to `clk`, so the system domain can never sample an illegal intermediate pointer value while the pointer increments; the activity counter crosses as binary on purpose because it is only change-detected. The synchroniser flip-flops carry vendor-neutral attributes (`ASYNC_REG` for Xilinx, `syn_preserve`/`syn_srlstyle` for Synplify/Lattice, `preserve` for Intel, plus `keep`) so the same RTL builds correctly across vendors.
 
 CDC timing-constraint templates live in [`constraints/`](constraints/): `spw_cdc.xdc` (Xilinx Vivado), `spw_cdc.sdc` (Intel Quartus), and `spw_cdc_lattice.sdc` (Lattice), with [`constraints/README.md`](constraints/README.md) covering usage and the required `bitrate < rxchunk x sysclk` rate rule. They are validated-intent templates and have not yet been run through the vendor back ends.
 
-### AXI-Lite Register Map
+## AXI-Lite Register Map
 
 The AXI-Lite control/status block uses 32-bit little-endian registers in a 64-byte (16-word) aperture. All registers return `OKAY` responses; any address outside the aperture (offset `>= 0x40`), and unmapped offsets inside it, read as zero and ignore writes — they do not alias the implemented registers. Hardware reset clears `CONTROL`, `TXDIVCNT`, TimeCode state, sticky errors, and IRQ enable state.
 
@@ -164,11 +124,16 @@ The AXI-Lite control/status block uses 32-bit little-endian registers in a 64-by
 
 `ERROR` bit fields are `[0] errdisc`, `[1] errpar`, `[2] erresc`, and `[3] errcred`. `IRQ_STATUS` uses `[0] any sticky error`, `[1] received TimeCode valid`, `[2] RX valid`, `[3] TX ready`, and `[4] link active`, where link active is `started | connecting | running`. The `irq` output is a level signal: `irq = |(IRQ_STATUS & IRQ_ENABLE)`. Because `IRQ_STATUS[2]`, `[3]`, and `[4]` are live level sources, they deassert only when the underlying condition deasserts or their enable bits are cleared; W1C writes affect only the sticky error and TimeCode-valid sources.
 
-## How to Use and Test
+## Building and Testing
 
-The imported baseline includes RTL, benches, scripts, and CI workflows. SpaceWire Reloaded adds a Python build entry point for lint and cocotb regressions.
+Fetch the submodules and install the Python regression dependencies:
 
-Clean-checkout flow:
+```sh
+git submodule update --init --recursive
+python -m pip install -r requirements-dev.txt
+```
+
+Then lint, simulate, and dry-run an FPGA build from a clean checkout:
 
 ```sh
 python build.py lint
@@ -178,14 +143,9 @@ python build.py test --runner wsl
 python build.py vivado --dry-run
 ```
 
-Fetch the submodules and install the Python regression dependencies with:
+`python build.py test` uses cocotb with `cocotbext-axi`. The regression depends on a small [fork of `cocotbext-axi`](https://github.com/bard0-design/cocotbext-axi/tree/spw-protocol-compliance) that adds an optional AXI handshake protocol checker to the BFMs. It is vendored as the [`third_party/cocotbext-axi`](third_party/cocotbext-axi) git submodule (pinning the exact fork commit) and installed editable from there by `requirements-dev.txt`. Setting `COCOTBEXT_AXI_CHECK_PROTOCOL=1` (the cocotb CI workflow does) enables the checker on every BFM in the run. To use upstream `cocotbext-axi` instead, replace the editable line in `requirements-dev.txt` with `cocotbext-axi` — the fork-specific test skips automatically.
 
-```sh
-git submodule update --init --recursive
-python -m pip install -r requirements-dev.txt
-```
-
-`python build.py test` uses cocotb with `cocotbext-axi`. The regression depends on a small [fork of `cocotbext-axi`](https://github.com/bard0-design/cocotbext-axi/tree/spw-protocol-compliance) that adds an optional AXI handshake protocol checker to the BFMs. It is vendored as the [`third_party/cocotbext-axi`](third_party/cocotbext-axi) git submodule (pinning the exact fork commit) and installed editable from there by `requirements-dev.txt`. Setting `COCOTBEXT_AXI_CHECK_PROTOCOL=1` (the cocotb CI workflow does) enables the checker on every BFM in the run. To use upstream `cocotbext-axi` instead, replace the editable line in `requirements-dev.txt` with `cocotbext-axi` — the fork-specific test skips automatically. The test runner supports:
+The test runner options:
 
 - `--runner auto`: default; prefers WSL on Windows when a WSL distribution is visible, otherwise uses the local environment.
 - `--runner wsl`: run cocotb from WSL with `python3`.
@@ -194,7 +154,9 @@ python -m pip install -r requirements-dev.txt
 - `--hdl vhdl`: run the VHDL AXI leaf/register cocotb regressions with GHDL and cocotb VPI.
 - `--hdl all`: run both Verilog and VHDL cocotb regressions.
 
-The current cocotb regression runs the shared AXI tests against the Verilog AXI modules with Icarus Verilog and the VHDL AXI modules with GHDL. AXI-Lite tests use `AxiLiteMaster` for register reads, writes, byte strobes, randomized status/control access, reset recovery, independent AW/W ordering, and channel backpressure. AXI-Stream tests use `AxiStreamSource` and `AxiStreamSink` with pause generators for ready/valid backpressure. The top-level AXI regression loops the SpaceWire physical TX/RX pins back through the real `spwstream` core in both Verilog and VHDL, and covers EOP, EEP, empty packets, multiple back-to-back packets, packet-boundary stalls, reset during streaming, link disconnect/reconnect, and TimeCode transfer through AXI-Lite. It also checks two SpaceWire-semantic properties: that the core is a transparent TimeCode pipe (it forwards any time value verbatim — repeats, wraps, and jumps — with no hardware "previous+1" filter and no master counter, the increment policy being a host concern, and only while the link is in Run state), and that sustained RX backpressure which fills the RX FIFO drives credit-based flow control without losing, duplicating, or reordering any byte once the consumer resumes.
+VHDL cocotb execution requires a simulator/install combination with a working GHDL cocotb VPI interface. The local runner asks `ghdl` for its VPI library directory so Windows installs with split `bin` and `lib` DLL directories can load cocotb's GHDL VPI module. The GitHub Actions cocotb workflow installs GHDL, Icarus Verilog, and `requirements-dev.txt`, then runs both `--hdl verilog` and `--hdl vhdl`.
+
+### Configuration and timing
 
 For Verilog integration, set `SYS_CLOCK_HZ` to the `clk` frequency and `TX_CLOCK_HZ` to the `txclk` frequency when `TXIMPL=1`. The Verilog AXI top and `spwstream` derive the SpaceWire reset window, disconnect timeout, and startup 10 Mbit/s divider from those clock parameters. The raw `RESET_TIME`, `DISCONNECT_TIME`, and `DEFAULT_DIVCNT` parameters are compatibility overrides; leave them at zero for derived, spec-oriented timing.
 
@@ -202,19 +164,33 @@ The SpaceWire standard fixes the link-handshake signalling rate at 10 Mbit/s ±1
 
 By default the core is a transparent TimeCode pipe (every received TimeCode emits `tick_out`). Setting the `STRICT_TIMECODES` parameter/generic on `spwstream`/`spw_axi_top` to 1 enables the SpaceWire strict reception rule: a received TimeCode emits `tick_out` only when its 6-bit count is exactly the previous count + 1 (mod 64); an out-of-sequence value still updates the local count but does not emit. The received-count register resets to `0x3F`, so a peer counting up from 0 is in sequence from its first TimeCode. The default (0) is unchanged for backward compatibility.
 
-Exchange-level conformance is checked directly against the transmitted character stream. A cocotb SpaceWire monitor decodes the DUT's `spw_do`/`spw_so` output (a port of the `spwrecv` bit decoder) and the external-line suite asserts: the core emits at least one NULL before any FCT and at least one FCT before reaching Run, and no N-Char/Time-Code before that first FCT (the Rev.1 "Sent NULL"/"Sent FCT" gating); the transmit character priority (a requested Time-Code preempts queued data — Time-Code > N-Char); flow control grants exactly eight N-Chars per received FCT, and EOP/EEP consume credit like data (an undrained EOP burst raises `errcred`); and that random line noise never carries the link to Run — the FSM advances only on decoded NULL/FCT characters (auto-start uses `gotNULL`; raw bit activity, `gotBit`, only feeds the disconnect timer, never the Run transition).
+## Verification
 
-The AXI top-level suite has started to mirror the old `spwlink_tb_all` configuration sweep. The cocotb sweep preserves the original clock, divider, RX implementation, RX chunk, TX implementation, and input-rate table, then runs all 23 configurations through the AXI wrapper in both Verilog and VHDL. Loopback-compatible configurations use physical SpaceWire TX/RX loopback through the real core. The high-speed transmitter-only configurations use a cocotb SpaceWire line driver that idles through startup, sends NULLs/FCTs like the original VHDL bench, and checks TX bit timing on the DUT output pins. The external line-driver regression also injects disconnect, double-ESC, parity, and credit-error conditions and checks the AXI-visible sticky error bits, both singly and as a back-to-back burst that re-links cleanly after each of the four error types in succession.
+### Dual-language cocotb regression
 
-The cocotb suite also includes simulation-time AXI protocol checkers, in two complementary layers. The first is a repo-local checker attached to the loopback, register, configuration-sweep, strict-TimeCode, and external-line tests: AXI-Lite channels are checked for ready/valid payload stability under backpressure, `BRESP`/`RRESP` = OKAY, a response only after a matching request, no duplicate address/data acceptance, and a bounded response latency; AXI-Stream channels are checked for resolved `TVALID`/`TREADY`, resolved active payloads, stable payload while stalled, bounded packet length, DUT-output `TVALID` clearing during reset, and the SpaceWire N-Char terminal-beat contract: `TLAST` marks EOP/EEP, terminal `TDATA` must be `0` or `1`, and terminal `TUSER[0]` must match the EEP code. It also enforces that a DUT-driven `VALID` (m_axis `TVALID`, AXI-Lite `BVALID`/`RVALID`) never deasserts before its handshake. The converse rule — `VALID` must not *wait* for `READY` — is checked behaviourally by `axi_lite_response_valid_does_not_wait_for_ready`, which drives a write and a read with the response `READY` held low and confirms `BVALID`/`RVALID` rise anyway (a full no-combinational-path proof needs lint/formal, out of simulation scope). Byte-strobe handling is checked exhaustively by `axi_lite_wstrb_honored_for_all_patterns`, which sweeps all sixteen `WSTRB` masks against a scoreboard and confirms only the strobed byte lanes update. The second layer is the `cocotbext-axi` fork's built-in handshake checker (`check_protocol`): with `COCOTBEXT_AXI_CHECK_PROTOCOL=1` it rides along inside every BFM for the whole run and enforces the generic AXI handshake contract (VALID held until handshake, payload driven and stable while stalled, resolved control) on each channel the DUT drives. Because the "VALID held until handshake" rule is only exercised when READY actually goes low while VALID is high, the configuration sweep (all 23 clock/RX-impl/RX-chunk/TX-impl cases, both languages) and the strict-TimeCode test now backpressure every DUT-driven channel (AXI-Lite `B`/`R`, m_axis), so the fork checker verifies response- and stream-channel handshake stability across the whole matrix, not just on the loopback test. The `spw_axi_top_fork_check` regression proves the fork checker catches the soft-reset `TVALID`-retraction violation on the real DUT in both languages (it fails with the pre-fix RTL, passes with the register-slice bridge), and a family of `axi_top_external_line_m_axis_held_survives_*` tests (disconnect, parity, escape, and credit errors) uses the same checker to confirm a held m_axis beat under backpressure is not retracted when each kind of external-line error terminates the packet (real link error events, distinct from the CSR flush). These are protocol invariant checks during regression, not a replacement for a future formal proof flow.
+The regression runs the shared AXI tests against the Verilog AXI modules with Icarus Verilog and the VHDL AXI modules with GHDL. AXI-Lite tests use `AxiLiteMaster` for register reads, writes, byte strobes, randomized status/control access, reset recovery, independent AW/W ordering, and channel backpressure. AXI-Stream tests use `AxiStreamSource` and `AxiStreamSink` with pause generators for ready/valid backpressure. The top-level regression loops the SpaceWire physical TX/RX pins back through the real `spwstream` core in both Verilog and VHDL, and covers EOP, EEP, empty packets, multiple back-to-back packets, packet-boundary stalls, reset during streaming, link disconnect/reconnect, and TimeCode transfer through AXI-Lite. It also checks two SpaceWire-semantic properties: that the core is a transparent TimeCode pipe (it forwards any time value verbatim — repeats, wraps, and jumps — with no hardware "previous+1" filter and no master counter, the increment policy being a host concern, and only while the link is in Run state), and that sustained RX backpressure which fills the RX FIFO drives credit-based flow control without losing, duplicating, or reordering any byte once the consumer resumes.
+
+The top-level suite mirrors the original `spwlink_tb_all` configuration sweep: it preserves the original clock, divider, RX implementation, RX chunk, TX implementation, and input-rate table, then runs all 23 configurations through the AXI wrapper in both languages. Loopback-compatible configurations use physical SpaceWire TX/RX loopback through the real core; the high-speed transmitter-only configurations use a cocotb SpaceWire line driver that idles through startup, sends NULLs/FCTs like the original VHDL bench, and checks TX bit timing on the DUT output pins. The external line-driver regression also injects disconnect, double-ESC, parity, and credit-error conditions and checks the AXI-visible sticky error bits, both singly and as a back-to-back burst that re-links cleanly after each of the four error types in succession.
 
 The receive bridge (`spw_axis_rx`) presents `m_axis` through a 1-deep registered (skid) stage whose holding register is reset only by the AXI bus reset, not by the `CONTROL[0]` core soft reset. This keeps AXI-Stream compliant when software soft-resets the core mid-stream: a beat already presented on `m_axis` holds (`TVALID` asserted, payload stable) until `TREADY`, rather than being retracted by the core RX-FIFO flush. The `m_axis_tvalid_not_retracted_by_soft_reset` regression covers it in both languages.
 
-Functional coverage is measured explicitly: `axi_top_external_line_functional_coverage` drives one comprehensive scenario and records a cover-point set — link bring-up reaching `started`/`connecting`/`running`, recovery after an error, all four link errors (`errdisc`/`errpar`/`erresc`/`errcred`), received data character, EOP, EEP, and TimeCode — then prints a coverage report (`covered 12/12 cover-points`) and fails if any point is missed, in both Verilog and VHDL. This is cover-point (functional) coverage, which the Icarus/GHDL flow supports. RTL line coverage is measured separately with Verilator: `python3 tests/cocotb/verilator_coverage.py` builds the design with `--coverage` across several configurations (generic and fast loopback, external-line error injection, fast-RX sweep cases for the RXCHUNK==1 and high-oversample paths, and the leaf-module unit tests), runs the cocotb regressions against each, and merges the result with `verilator_coverage`; pass `--min PCT` to fail below a floor. The current suite reaches **99.3%** line coverage of the core and AXI wrappers. The runner also parses the raw Verilator coverage data and reports the other point types separately — **branch** (control-flow `cond_then`/`cond_else` arms), **expression** (condition terms), and **toggle** — with a per-file branch breakdown, aggregated per source location (a point counts as covered if any configuration hit it, as the line metric does). Current: **branch 99.6%**, **expression 95.8%**, **toggle 87.8%**. These count each branch arm / expression term, so they are finer-grained than the line metric. The never-taken elaboration guards (the `$display`/`$finish` parameter-range, startup-rate, and `ADDR_WIDTH` checks) are excluded with `// verilator coverage_off`; the only branch arm left uncovered is provably defensive — `spwram`'s `ren` else (the FIFO holds read-enable high). (`spwstream`'s `!rxfull` else, unreachable while a remote respects its credit, is exercised by the credit-underflow error-injection tests, where a credit-violating remote fills the RX FIFO.) Only line coverage is gated by `--min`. The flow needs Verilator >= 5.022 on PATH (Icarus has no coverage support and the installed GHDL uses the mcode backend); because the distribution apt Verilator (5.020) predates the VPI entry points cocotb's Verilator harness calls, the [`Coverage` workflow](.github/workflows/coverage.yml) builds a pinned Verilator from source (cached) and runs this flow with a coverage floor.
+### AXI protocol compliance
 
-VHDL cocotb execution requires a simulator/install combination with a working GHDL cocotb VPI interface. The local runner asks `ghdl` for its VPI library directory so Windows installs with split `bin` and `lib` DLL directories can load cocotb's GHDL VPI module. The GitHub Actions cocotb workflow installs GHDL, Icarus Verilog, and `requirements-dev.txt`, then runs both `--hdl verilog` and `--hdl vhdl`.
+Two complementary checker layers run during the regression. The first is a repo-local checker attached to the loopback, register, configuration-sweep, strict-TimeCode, and external-line tests: AXI-Lite channels are checked for ready/valid payload stability under backpressure, `BRESP`/`RRESP` = OKAY, a response only after a matching request, no duplicate address/data acceptance, and a bounded response latency; AXI-Stream channels are checked for resolved `TVALID`/`TREADY`, resolved active payloads, stable payload while stalled, bounded packet length, DUT-output `TVALID` clearing during reset, and the SpaceWire N-Char terminal-beat contract (`TLAST` marks EOP/EEP, terminal `TDATA` is `0` or `1`, and terminal `TUSER[0]` matches the EEP code). It also enforces that a DUT-driven `VALID` (m_axis `TVALID`, AXI-Lite `BVALID`/`RVALID`) never deasserts before its handshake. The converse rule — `VALID` must not *wait* for `READY` — is checked behaviourally by `axi_lite_response_valid_does_not_wait_for_ready`, which drives a write and a read with the response `READY` held low and confirms `BVALID`/`RVALID` rise anyway (a full no-combinational-path proof needs lint/formal, out of simulation scope). Byte-strobe handling is checked exhaustively by `axi_lite_wstrb_honored_for_all_patterns`, which sweeps all sixteen `WSTRB` masks against a scoreboard and confirms only the strobed byte lanes update.
 
-## Hardware Example: Arty A7-100T Loopback
+The second layer is the `cocotbext-axi` fork's built-in handshake checker (`check_protocol`): with `COCOTBEXT_AXI_CHECK_PROTOCOL=1` it rides along inside every BFM for the whole run and enforces the generic AXI handshake contract (VALID held until handshake, payload driven and stable while stalled, resolved control) on each channel the DUT drives. Because the "VALID held until handshake" rule is only exercised when READY actually goes low while VALID is high, the configuration sweep and the strict-TimeCode test backpressure every DUT-driven channel (AXI-Lite `B`/`R`, m_axis), so the fork checker verifies response- and stream-channel handshake stability across the whole matrix, not just on the loopback test. The `spw_axi_top_fork_check` regression proves the fork checker catches the soft-reset `TVALID`-retraction violation on the real DUT in both languages (it fails with the pre-fix RTL, passes with the register-slice bridge), and a family of `axi_top_external_line_m_axis_held_survives_*` tests (disconnect, parity, escape, and credit errors) confirms a held m_axis beat under backpressure is not retracted when each kind of external-line error terminates the packet. These are protocol-invariant checks during regression, not a replacement for a future formal proof flow.
+
+### SpaceWire exchange-level conformance
+
+Conformance is checked directly against the transmitted character stream. A cocotb SpaceWire monitor decodes the DUT's `spw_do`/`spw_so` output (a port of the `spwrecv` bit decoder) and the external-line suite asserts: the core emits at least one NULL before any FCT and at least one FCT before reaching Run, and no N-Char/Time-Code before that first FCT (the Rev.1 "Sent NULL"/"Sent FCT" gating); the transmit character priority (a requested Time-Code preempts queued data — Time-Code > N-Char); flow control grants exactly eight N-Chars per received FCT, and EOP/EEP consume credit like data (an undrained EOP burst raises `errcred`); and that random line noise never carries the link to Run — the FSM advances only on decoded NULL/FCT characters (auto-start uses `gotNULL`; raw bit activity, `gotBit`, only feeds the disconnect timer, never the Run transition).
+
+### Coverage
+
+Functional coverage is measured explicitly: `axi_top_external_line_functional_coverage` drives one comprehensive scenario and records a cover-point set — link bring-up reaching `started`/`connecting`/`running`, recovery after an error, all four link errors (`errdisc`/`errpar`/`erresc`/`errcred`), received data character, EOP, EEP, and TimeCode — then prints a coverage report (`covered 12/12 cover-points`) and fails if any point is missed, in both Verilog and VHDL. This is cover-point (functional) coverage, which the Icarus/GHDL flow supports.
+
+RTL line coverage is measured separately with Verilator: `python3 tests/cocotb/verilator_coverage.py` builds the design with `--coverage` across several configurations (generic and fast loopback, external-line error injection, fast-RX sweep cases for the RXCHUNK==1 and high-oversample paths, and the leaf-module unit tests), runs the cocotb regressions against each, and merges the result with `verilator_coverage`; pass `--min PCT` to fail below a floor. The current suite reaches **99.3%** line coverage of the core and AXI wrappers. The runner also parses the raw Verilator coverage data and reports the other point types separately — **branch** (control-flow `cond_then`/`cond_else` arms), **expression** (condition terms), and **toggle** — with a per-file branch breakdown, aggregated per source location (a point counts as covered if any configuration hit it, as the line metric does). Current: **branch 99.6%**, **expression 95.8%**, **toggle 87.8%**. These count each branch arm / expression term, so they are finer-grained than the line metric. The never-taken elaboration guards (the `$display`/`$finish` parameter-range, startup-rate, and `ADDR_WIDTH` checks) are excluded with `// verilator coverage_off`; the only branch arm left uncovered is provably defensive — `spwram`'s `ren` else (the FIFO holds read-enable high). (`spwstream`'s `!rxfull` else, unreachable while a remote respects its credit, is exercised by the credit-underflow error-injection tests, where a credit-violating remote fills the RX FIFO.) Only line coverage is gated by `--min`. The flow needs Verilator >= 5.022 on PATH (Icarus has no coverage support and the installed GHDL uses the mcode backend); because the distribution apt Verilator (5.020) predates the VPI entry points cocotb's Verilator harness calls, the [`Coverage` workflow](.github/workflows/coverage.yml) builds a pinned Verilator from source (cached) and runs this flow with a coverage floor.
+
+## Hardware Example: Arty A7-100T
 
 [`examples/arty_a7100t/`](examples/arty_a7100t/) is a complete hardware-validation design for the Digilent Arty A7-100T (`xc7a100tcsg324-1`). A single `spw_axi_top` link is run in loopback and verified over JTAG with [fpgacapZero](https://github.com/lcapossio/fpgacapZero) ("fcapz"), which is pulled in as a git submodule. The example ships in both Verilog and VHDL.
 
@@ -249,10 +225,8 @@ The current report below was generated with GHDL 4.1.0 and Yosys 0.33 in WSL on 
 
 Vendor FPGA resource and maximum-frequency reports still need a concrete device, constraints, and place-and-route flow. Future vendor reports will state the FPGA vendor, family, exact part, speed grade, tool version, constraints, clocks, LUT/register/RAM/DSP use, and achieved timing.
 
-## Author and License
+## License and Credits
 
-Author: Leonardo Capossio - bard0 design - hello@bard0.com
-
-Target license: LGPL-compatible licensing for the full core, including AMBA/AXI interfaces.
-
-Original inspiration: SpaceWire Light by Joris van Rantwijk.
+- **License:** LGPL-2.1-or-later for the entire core, AXI interfaces included. Full text in [LGPL-2.1.txt](LGPL-2.1.txt); every source file carries an `SPDX-License-Identifier: LGPL-2.1-or-later` tag.
+- **Author:** Leonardo Capossio - bard0 design - hello@bard0.com
+- **Based on:** SpaceWire Light by Joris van Rantwijk (2009-2013), preserved as [README.spacewire_light.md](README.spacewire_light.md).
