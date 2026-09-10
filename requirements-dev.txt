@@ -1,5 +1,7 @@
 pytest
-cocotb
+# Pinned to the 2.0.x series: cocotb 2.1.0 breaks the test harness (tests abort
+# with "cocotb did not write results file"). Allow 2.0.x patch releases only.
+cocotb~=2.0.1
 # AXI BFMs: fork of cocotbext-axi that adds the optional check_protocol AXI
 # handshake checker (enable for a whole run with COCOTBEXT_AXI_CHECK_PROTOCOL=1).
 # Vendored as the third_party/cocotbext-axi submodule; install it editable from
