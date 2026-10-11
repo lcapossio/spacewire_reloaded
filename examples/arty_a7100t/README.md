@@ -226,21 +226,36 @@ fcapz --backend hw_server --port 3121 --tap xc7a100t \
 fcapz --backend hw_server --port 3121 --tap xc7a100t axi-read 0x14   # -> 0x53505752 "SPWR"
 ```
 
+### Hardware results
+
+Arty A7-100T, internal loopback, fpgacapZero v0.4.9 over hw_server (Vivado
+2025.2), 2026-10-11. Every run reprograms the bitstream first, except the
+"stress after loadfault" row, which soaks the still-running design straight
+after `--loadfault` (stop/restart of the self-check mid-stream).
+
+| Check | generic Verilog (10 Mbit/s) | generic VHDL (10 Mbit/s) | fast Verilog (100 Mbit/s) |
+| --- | --- | --- | --- |
+| basic (IDs, self-check, data mover, EIO) | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 | PASS |
+| `--inject`, `--timecode`, `--eep`, `--loadfault` | PASS | PASS | PASS |
+| stress after loadfault, 20 s | 1,169,692 packets, ERR=0 | 1,169,524 packets, ERR=0 | 11,714,317 packets, ERR=0 |
+| `--stress 60` | 3,501,327 packets, 59.5M chars, ERR=0 (~0.99 MChar/s) | 3,496,178 packets, 59.4M chars, ERR=0 | 35,002,695 packets, 595M chars, ERR=0 (~9.86 MChar/s) |
+| `ela_capture_demo.py` | PASS (D/S toggling, loopback holds) | - | - |
+
 ## FPGA resource usage and timing
 
 Whole design (SpaceWire core + loopback engine + fpgacapZero debug cores: 2 ELA,
 2 EIO, EJTAG-AXI bridge) on `xc7a100tcsg324-1` (Artix-7), Vivado 2025.2, default
-implementation strategy, Verilog build. Post-route, all timing constraints met.
+implementation strategy. Post-route, all timing constraints met.
 
-| Build | Clocks | LUTs | Registers | BRAM | BUFG | MMCM | Setup WNS | Link rate |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| generic | clk 100 MHz | 4029 (6.4%) | 4826 (3.8%) | 4 | 3 | 0 | +2.189 ns | ~10 Mbit/s |
-| fast | clk 100, rxclk 150, txclk 100 MHz | 4084 (6.4%) | 4998 (3.9%) | 4 | 6 | 1 | +2.108 ns | 100 Mbit/s |
+| Build | HDL | Clocks | LUTs | Registers | BRAM | BUFG | MMCM | Setup WNS | Link rate |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic | Verilog | clk 100 MHz | 4029 (6.4%) | 4826 (3.8%) | 4 | 3 | 0 | +2.189 ns | ~10 Mbit/s |
+| fast | Verilog | clk 100, rxclk 150, txclk 100 MHz | 4084 (6.4%) | 4998 (3.9%) | 4 | 6 | 1 | +2.108 ns | 100 Mbit/s |
+| generic | VHDL | clk 100 MHz | 4243 (6.7%) | 4737 (3.7%) | 4 | 3 | 0 | +2.018 ns | ~10 Mbit/s |
 
 The fast build adds the MMCM (1) and extra clock buffers for the separate
 `rxclk`/`txclk` domains and the oversampling fast RX/TX front ends. IOB usage is
-11 in both. The VHDL builds target the same device/clocks with comparable numbers
-(not re-implemented after the latest engine/fcapz update). SpaceWire run bit rate is `txclk/(LINK_TXDIVCNT+1)`
+11 in all builds. SpaceWire run bit rate is `txclk/(LINK_TXDIVCNT+1)`
 (generic `LINK_TXDIVCNT=9` -> ~10 Mbit/s; fast `LINK_TXDIVCNT=0` -> 100 Mbit/s).
 
 ## Author and License
