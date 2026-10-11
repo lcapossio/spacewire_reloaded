@@ -110,7 +110,7 @@ architecture rtl of spw_loopback_axi is
                        M_DIV_AW, M_DIV_B, M_ID_AR, M_ID_R, M_STAT_AR, M_STAT_R,
                        M_CLR_AW, M_CLR_B,
                        M_TC_CLR_AW, M_TC_CLR_B, M_TC_TX_AW, M_TC_TX_B, M_TCRX_R);
-    type t_state_t is (T_IDLE, T_DATA, T_EOP, T_DONE);
+    type t_state_t is (T_IDLE, T_FLUSH, T_DATA, T_EOP, T_DONE);
     type w_state_t is (W_IDLE, W_DATA, W_RESP);
     type r_state_t is (R_IDLE, R_DATA);
 
@@ -159,6 +159,10 @@ architecture rtl of spw_loopback_axi is
     signal rx_lfsr: std_logic_vector(7 downto 0);  -- PRBS checker (RX)
     signal tx_pkt:  natural;      -- packets transmitted this run (free-running in loop mode)
     signal rx_pkt:  natural;      -- packets received this run
+    -- RX flush before each run: 16 character times (10 bits each) of silence
+    -- (see rtl/spw_loopback_axi.v).
+    constant FLUSH_IDLE: natural := 16 * 10 * (to_integer(unsigned(LINK_TXDIVCNT)) + 1);
+    signal flush_cnt: natural range 0 to FLUSH_IDLE;
     constant PRBS_SEED: std_logic_vector(7 downto 0) := x"FF";
     constant PRBS_POLY: std_logic_vector(7 downto 0) := x"B8"; -- maximal 8-bit LFSR
 
@@ -503,6 +507,7 @@ begin
         if rising_edge(clk) then
             if rst = '1' then
                 tstate <= T_IDLE; tx_idx <= 0; exp_idx <= 0; check_active <= '0';
+                flush_cnt <= 0;
                 tx_lfsr <= PRBS_SEED; rx_lfsr <= PRBS_SEED; tx_pkt <= 0; rx_pkt <= 0;
                 selftest_busy_r <= '0'; selftest_done_r <= '0'; selftest_pass_r <= '0';
                 txcount_r <= (others => '0'); rxcount_r <= (others => '0');
@@ -530,8 +535,20 @@ begin
                                 selftest_busy_r <= '1';
                                 selftest_done_r <= '0';
                                 selftest_pass_r <= '0';
+                                flush_cnt <= 0;
+                                tstate <= T_FLUSH;
+                            end if;
+                        when T_FLUSH =>
+                            -- Discard stale RX (tready=1, checker inactive) until
+                            -- the line has been quiet for FLUSH_IDLE clocks.
+                            m_axis_tvalid_r <= '0';
+                            if s_axis_tvalid = '1' then
+                                flush_cnt <= 0;
+                            elsif flush_cnt = FLUSH_IDLE - 1 then
                                 check_active <= '1';
                                 tstate <= T_DATA;
+                            else
+                                flush_cnt <= flush_cnt + 1;
                             end if;
                         when T_DATA =>
                             -- Present the current PRBS byte; hold until accepted.
@@ -614,6 +631,10 @@ begin
                 else
                     -- data-mover
                     selftest_busy_r <= '0';
+                    -- A stopped run never resumes mid-sequence: re-enabling the
+                    -- self-check always starts a fresh (flushed) run from T_IDLE.
+                    tstate <= T_IDLE;
+                    check_active <= '0';
                     if (dm_tx_pending = '1') and (m_axis_tvalid_r = '0') then
                         m_axis_tdata_r  <= dm_tx_beat(7 downto 0);
                         m_axis_tlast_r  <= dm_tx_beat(8);

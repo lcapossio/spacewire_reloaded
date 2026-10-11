@@ -263,6 +263,51 @@ async def test_continuous_loop(dut):
                   f"TX={txc} RX={rxc} ERR=0")
 
 
+async def loop_until_packets(dut, n, what, polls=80):
+    """Wait until PKTCOUNT >= n with ERRCOUNT 0 throughout; return (pkts, tx, rx).
+    Polls every 1000 clocks, at most `polls` times."""
+    pkts = 0
+    for _ in range(polls):
+        for _ in range(1000):
+            await RisingEdge(dut.clk)
+        pkts = await axi_read(dut, PKTCOUNT)
+        errs = await axi_read(dut, ERRCOUNT)
+        assert errs == 0, f"{what}: ERRCOUNT={errs} (PKTCOUNT={pkts})"
+        if pkts >= n:
+            return pkts, await axi_read(dut, TXCOUNT), await axi_read(dut, RXCOUNT)
+    raise TimeoutError(f"{what}: loop did not advance (PKTCOUNT={pkts})")
+
+
+@cocotb.test()
+async def test_loop_stop_restart(dut):
+    """Stop continuous mode mid-stream, then restart it (with and without the
+    start pulse): the new run must flush the stale tail still in flight and
+    count 0 errors (regression for the restart PRBS misalignment, Bug 32)."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+    await poll_until(dut, STATUS, ST_LINK_RUNNING)
+    await poll_until(dut, STATUS, ST_SELFTEST_DONE)       # power-on one-shot run
+
+    await axi_write(dut, CTRL, CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP | CTRL_SELFTEST_STRT)
+    await loop_until_packets(dut, 6, "first loop run")
+
+    for restart in (CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP | CTRL_SELFTEST_STRT,
+                    CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP):
+        await axi_write(dut, CTRL, 0x0)                    # stop mid-stream
+        for _ in range(200):
+            await RisingEdge(dut.clk)
+        await axi_write(dut, CTRL, restart)
+        # The stale tail is up to a full core TX FIFO (2048 chars, kept full in
+        # loop mode) still draining at link rate (~100 clocks/char here): the
+        # flush takes ~205k clocks before the new run starts.
+        pkts, txc, rxc = await loop_until_packets(dut, 6, f"restart CTRL={restart:#x}",
+                                                  polls=400)
+        # counters restart with the run: RX never exceeds TX (no stale chars)
+        assert rxc <= txc, f"stale RX counted after restart: TX={txc} RX={rxc}"
+        dut._log.info(f"restart CTRL={restart:#x}: {pkts} packets, TX={txc} RX={rxc} ERR=0")
+    await axi_write(dut, CTRL, 0x0)
+
+
 @cocotb.test()
 async def test_error_injection(dut):
     """Inject errors on the internal loopback line and check link-error detection
