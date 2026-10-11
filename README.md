@@ -1,10 +1,10 @@
 # SpaceWire Reloaded
 
-Author: Leonardo Capossio - bard0 design - hello@bard0.com - 2026
+Author: Leonardo Capossio - [bard0 design](https://www.bard0.com) - hello@bard0.com - 2026
 
 SpaceWire Reloaded is a vendor-neutral SpaceWire link core with AXI4-Lite and AXI4-Stream interfaces, maintained in both VHDL and Verilog and verified in simulation and on FPGA hardware. It is a continuation of Joris van Rantwijk's **SpaceWire Light**: the proven SpaceWire encoder/decoder architecture is kept, the GRLIB-dependent (GPL) AMBA integration is replaced by a from-scratch AXI layer, and the entire core — bus interfaces included — is licensed **LGPL-2.1-or-later**.
 
-The core implements the SpaceWire link layer: data-strobe (DS) encoding, link initialisation and disconnect, credit-based flow control, N-Chars, and TimeCodes. Around it, an AXI4-Lite block exposes control, status, interrupt, and TimeCode registers, while an AXI4-Stream pair moves SpaceWire N-Chars in and out. A complete Arty A7-100T design runs a link in loopback and is validated over JTAG.
+The core implements the SpaceWire link layer: data-strobe (DS) encoding, link initialisation and disconnect, credit-based flow control, N-Chars, and TimeCodes. Around it, an AXI4-Lite block exposes control, status, interrupt, and TimeCode registers, while an AXI4-Stream pair moves SpaceWire N-Chars in and out. A complete Arty A7-100T design runs a link in loopback and is validated over JTAG, and a Terasic DE25-Nano (Intel Agilex 5) design runs the same loopback, built with Quartus and validated over JTAG with the same host checks.
 
 ## Index
 
@@ -17,6 +17,7 @@ The core implements the SpaceWire link layer: data-strobe (DS) encoding, link in
 - [Building and Testing](#building-and-testing)
 - [Verification](#verification)
 - [Hardware Example: Arty A7-100T](#hardware-example-arty-a7-100t)
+- [Hardware Example: DE25-Nano (Agilex 5)](#hardware-example-de25-nano-agilex-5)
 - [FPGA Resource Usage and Timing](#fpga-resource-usage-and-timing)
 - [License and Credits](#license-and-credits)
 
@@ -44,7 +45,7 @@ The original upstream README is preserved verbatim as [README.spacewire_light.md
 - **Bus-neutral internal split** — the SpaceWire core keeps a simple control/data interface, so further wrappers (AHB/APB, an AXI-DMA data path) can be added without touching the core.
 - **Vendor-neutral CDC** — two-flop synchronisers carrying Xilinx/Intel/Lattice/Synplify attributes, with Vivado/Quartus/Lattice constraint templates.
 - **Verification** — a dual-language cocotb regression, two-layer AXI protocol checking, SpaceWire exchange-level conformance checks, explicit functional coverage, and Verilator line/branch/expression/toggle coverage.
-- **Hardware example** — an Arty A7-100T loopback design (Verilog and VHDL) validated over JTAG.
+- **Hardware examples** — an Arty A7-100T loopback design (Verilog and VHDL, Vivado) validated over JTAG, and a DE25-Nano loopback design (Verilog and VHDL, Quartus Prime Pro) for Intel Agilex 5, validated over JTAG (USB-Blaster) with the same fpgacapZero host checks.
 
 ## Repository Layout
 
@@ -54,6 +55,7 @@ The original upstream README is preserved verbatim as [README.spacewire_light.md
 - `constraints` — vendor CDC constraint templates.
 - `syn`, `scripts` — synthesis wrappers and the resource-report and parity scripts.
 - `examples/arty_a7100t` — the Arty A7-100T hardware example.
+- `examples/de25_nano` — the DE25-Nano (Agilex 5) hardware example.
 - `doc` — the preserved SpaceWire Light manual and architecture documentation.
 - `third_party/cocotbext-axi` — vendored AXI BFM fork (git submodule).
 
@@ -141,7 +143,10 @@ python build.py test
 python build.py test --hdl vhdl
 python build.py test --runner wsl
 python build.py vivado --dry-run
+python build.py quartus --dry-run
 ```
+
+The FPGA flows look for the vendor tools on `PATH` (`vivado`; `quartus_sh`/`quartus_pgm`) and stop with an error naming the missing tool. `python build.py quartus` also accepts `--quartus-bin <dir>` to point at a Quartus `bin64` directory. Build outputs go under vendor folders at the repository root (Quartus: `quartus/`), which are not tracked.
 
 `python build.py test` uses cocotb with `cocotbext-axi`. The regression depends on a small [fork of `cocotbext-axi`](https://github.com/bard0-design/cocotbext-axi/tree/spw-protocol-compliance) that adds an optional AXI handshake protocol checker to the BFMs. It is vendored as the [`third_party/cocotbext-axi`](third_party/cocotbext-axi) git submodule (pinning the exact fork commit) and installed editable from there by `requirements-dev.txt`. Setting `COCOTBEXT_AXI_CHECK_PROTOCOL=1` (the cocotb CI workflow does) enables the checker on every BFM in the run. To use upstream `cocotbext-axi` instead, replace the editable line in `requirements-dev.txt` with `cocotbext-axi` — the fork-specific test skips automatically.
 
@@ -200,9 +205,21 @@ RTL line coverage is measured separately with Verilator: `python3 tests/cocotb/v
 
 See [`examples/arty_a7100t/README.md`](examples/arty_a7100t/README.md) for the register map, build, simulation, and hardware-verification steps, plus resource/timing numbers.
 
+## Hardware Example: DE25-Nano (Agilex 5)
+
+[`examples/de25_nano/`](examples/de25_nano/) targets the Terasic DE25-Nano (Intel/Altera Agilex 5 E-series, `A5EB013BB23BE4SR1`) and is built with Quartus Prime Pro. It shows that the core and the `spw_loopback_axi` engine port unchanged from Artix-7 to Agilex 5. The vendor-specific parts sit in two wrappers under `rtl/intel/`, each with behavioral stubs for simulation: the Agilex configuration reset release (Altera Reset Release IP) and the fpgacapZero JTAG debug cores (Intel `sld_virtual_jtag` ELA, EIO and EJTAG-AXI).
+
+- One `spw_axi_top` link in internal loopback, clocked from the board's 50 MHz `CLOCK1_50`, running at 10 Mbit/s (generic RX/TX front ends).
+- After configuration (or `KEY0`), the engine brings the link up over AXI-Lite and runs the fabric self-check on its own; `LEDR0`-`LEDR3` show bring-up, link running, self-check done and passed (all four lit = pass). No host is needed.
+- With a host, the Arty example's fpgacapZero checks run unchanged over the on-board USB-Blaster III (fcapz `usb_blaster` backend, Quartus `quartus_stp`): identity and `CORE_ID`, self-check counters, host data-mover, TimeCodes, EEP, error injection, fault under load, a PRBS soak and an ELA capture of the D/S lines.
+- A board-level cocotb test drives only the real pins (clock, keys) and checks the LEDs, for Verilog (Icarus) and VHDL (GHDL); it is part of `python build.py test`.
+- `python build.py quartus` compiles to a `.sof`; `--program` also programs the board over JTAG.
+
+See [`examples/de25_nano/README.md`](examples/de25_nano/README.md) for pins, build, simulation, host verification, and resource/timing numbers.
+
 ## FPGA Resource Usage and Timing
 
-Two views are reported: real vendor place-and-route numbers from Vivado, and a fast RTL-level trend metric from Yosys used in CI.
+Three views are reported: vendor place-and-route numbers from Vivado (Artix-7) and Quartus (Agilex 5), and a fast RTL-level trend metric from Yosys used in CI.
 
 ### Vivado place-and-route (Artix-7)
 
@@ -216,6 +233,17 @@ Two views are reported: real vendor place-and-route numbers from Vivado, and a f
 | fast RX/TX, 50/100 MHz | VHDL-derived | 538 | 548 | 2 | 0 | 169 MHz |
 
 The core is small — a few hundred LUTs/FFs and one block-RAM tile (the two RAMB18 are the RX and TX N-Char FIFOs), no DSP — and the two language sources track each other closely. The system-clock domain reaches ~170-180 MHz on this -1 part, comfortably above every SpaceWire operating point (the generic configuration targets a 20 MHz system clock; the fast configuration targets 50 MHz). In the fast configuration the oversampling receive and fast transmit domains close even higher (`rxclk` ~277 MHz, `txclk` ~290-305 MHz), so the system clock is the limiter. These are out-of-context core numbers (no I/O buffers or board constraints); the full-chip Arty design, including the fpgacapZero debug infrastructure, is reported in [`examples/arty_a7100t/README.md`](examples/arty_a7100t/README.md).
+
+### Quartus place-and-route (Agilex 5, full DE25-Nano design)
+
+The complete DE25-Nano example (`spw_axi_top` in the generic configuration, the `spw_loopback_axi` engine, the fpgacapZero ELA/EIO/EJTAG-AXI debug cores and the reset logic, with I/O) was compiled with Quartus Prime Pro 26.1 for `A5EB013BB23BE4SR1` (timing models Preliminary). `clk` is constrained at 50 MHz and JTAG TCK at 24 MHz; the design is fully constrained. Slack is the worst case over all timing corners; Fmax is the Quartus restricted Fmax of the slowest corner.
+
+| Source | Whole design ALMs | Registers | RAM blocks (bits) | DSP | `clk` setup / hold slack @ 50 MHz | `clk` Fmax | of which `spw_axi_top` (ALMs / registers / M20K) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Verilog | 4,031 / 46,800 | 6,135 | 5 (86,016) | 0 | +15.169 / +0.044 ns | 207 MHz | 227 / 292 / 2 |
+| VHDL | 4,015 / 46,800 | 6,096 | 5 (86,016) | 0 | +15.707 / +0.044 ns | 233 MHz | 227 / 294 / 2 |
+
+Most of the whole-design area is the fpgacapZero debug infrastructure (about 3,100 ALMs); the SpaceWire core itself is about 230 ALMs plus its two FIFO RAMs. Per-entity numbers are in [`examples/de25_nano/README.md`](examples/de25_nano/README.md).
 
 ### RTL-level trend metric (Yosys, CI)
 
@@ -243,5 +271,5 @@ These are hierarchical Yosys primitive-cell counts after `proc`, `memory`, and `
 ## License and Credits
 
 - **License:** LGPL-2.1-or-later for the entire core, AXI interfaces included. Full text in [LGPL-2.1.txt](LGPL-2.1.txt); every source file carries an `SPDX-License-Identifier: LGPL-2.1-or-later` tag.
-- **Author:** Leonardo Capossio - bard0 design - hello@bard0.com
+- **Author:** Leonardo Capossio - [bard0 design](https://www.bard0.com) - hello@bard0.com
 - **Based on:** SpaceWire Light by Joris van Rantwijk (2009-2013), preserved as [README.spacewire_light.md](README.spacewire_light.md).

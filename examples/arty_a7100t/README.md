@@ -19,7 +19,10 @@ that:
   (sends `SELFTEST_PKTS` back-to-back packets, each `SELFTEST_LEN` PRBS bytes +
   EOP, with the PRBS sequence continuing across packets so any dropped or
   duplicated char is caught, and checks the looped-back stream at link rate) or a
-  host **data-mover** (push/pop N-Chars from the host);
+  host **data-mover** (push/pop N-Chars from the host). Each self-check run
+  first flushes the receive side (discarding characters until the line has been
+  quiet for 16 character times), so a run restarted after stopping mid-stream
+  never checks the stale tail of the previous run;
 - presents an **AXI4 slave** register file to the fpgacapZero EJTAG-AXI bridge so
   the host drives and observes everything over JTAG.
 
@@ -123,8 +126,9 @@ loopback test on the board.
 
 A cocotb functional sim drives the engine's AXI4 slave exactly like fcapz does
 and checks, for both languages: the self-check and host data-mover loopbacks,
-continuous (loop) mode, error injection + recovery, TimeCode loopback, EEP
-round-trip, and fault-under-load recovery (7 tests):
+continuous (loop) mode, stopping and restarting loop mode mid-stream, error
+injection + recovery, TimeCode loopback, EEP round-trip, and fault-under-load
+recovery (8 tests):
 
 ```sh
 python -m pytest examples/arty_a7100t/tb/test_spw_loopback_runner.py            # Verilog (Icarus)
@@ -230,16 +234,16 @@ implementation strategy, Verilog build. Post-route, all timing constraints met.
 
 | Build | Clocks | LUTs | Registers | BRAM | BUFG | MMCM | Setup WNS | Link rate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| generic | clk 100 MHz | 4000 (6.3%) | 4699 (3.7%) | 4 | 3 | 0 | +1.848 ns | ~10 Mbit/s |
-| fast | clk 100, rxclk 150, txclk 100 MHz | 4268 (6.7%) | 5060 (4.0%) | 4 | 6 | 1 | +1.927 ns | 100 Mbit/s |
+| generic | clk 100 MHz | 4029 (6.4%) | 4826 (3.8%) | 4 | 3 | 0 | +2.189 ns | ~10 Mbit/s |
+| fast | clk 100, rxclk 150, txclk 100 MHz | 4084 (6.4%) | 4998 (3.9%) | 4 | 6 | 1 | +2.108 ns | 100 Mbit/s |
 
 The fast build adds the MMCM (1) and extra clock buffers for the separate
 `rxclk`/`txclk` domains and the oversampling fast RX/TX front ends. IOB usage is
 11 in both. The VHDL builds target the same device/clocks with comparable numbers
-(fast VHDL setup WNS +2.055 ns). SpaceWire run bit rate is `txclk/(LINK_TXDIVCNT+1)`
+(not re-implemented after the latest engine/fcapz update). SpaceWire run bit rate is `txclk/(LINK_TXDIVCNT+1)`
 (generic `LINK_TXDIVCNT=9` -> ~10 Mbit/s; fast `LINK_TXDIVCNT=0` -> 100 Mbit/s).
 
 ## Author and License
 
-Author: Leonardo Capossio - bard0 design - hello@bard0.com.
+Author: Leonardo Capossio - [bard0 design](https://www.bard0.com) - hello@bard0.com.
 License: LGPL-2.1-or-later (example), fpgacapZero submodule is Apache-2.0.

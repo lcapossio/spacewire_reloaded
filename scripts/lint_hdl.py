@@ -18,6 +18,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# GHDL library + object files (the GCC/LLVM backends write one .o per design
+# unit) go here, under the ignored build/ tree, never into the repo root.
+GHDL_WORKDIR = ROOT / "build" / "ghdl_lint"
+GHDL_OPTS = ["--std=08", "-fsynopsys", f"--workdir={GHDL_WORKDIR}"]
 
 VERILOG_SOURCES = [
     "bench/verilog/spwstream_smoke_tb.v",
@@ -43,6 +47,12 @@ VERILOG_SOURCES = [
     "rtl/verilog/spw_axi_top.v",
     "examples/arty_a7100t/rtl/spw_loopback_axi.v",
     "examples/arty_a7100t/tb/spw_loopback_sim_top.v",
+    # DE25-Nano top with its vendor-wrapper sim stubs. The Quartus-only wrappers
+    # (examples/de25_nano/rtl/intel/: Altera Reset Release IP, fcapz Intel
+    # sld_virtual_jtag cores) are checked by Quartus synthesis instead.
+    "examples/de25_nano/tb/de25_reset_release_sim.v",
+    "examples/de25_nano/tb/de25_debug_sim.v",
+    "examples/de25_nano/rtl/spw_de25_nano_top.v",
 ]
 
 VERILOG_RTL_SOURCES = [
@@ -61,6 +71,9 @@ VERILOG_RTL_SOURCES = [
     "rtl/verilog/spw_axi_lite_regs.v",
     "rtl/verilog/spw_axi_top.v",
     "examples/arty_a7100t/rtl/spw_loopback_axi.v",
+    "examples/de25_nano/tb/de25_reset_release_sim.v",
+    "examples/de25_nano/tb/de25_debug_sim.v",
+    "examples/de25_nano/rtl/spw_de25_nano_top.v",
 ]
 
 
@@ -90,6 +103,7 @@ YOSYS_TOPS = [
     YosysTop("AXI-Lite register block", "spw_axi_lite_regs"),
     YosysTop("AXI top wrapper", "spw_axi_top"),
     YosysTop("Arty loopback engine", "spw_loopback_axi"),
+    YosysTop("DE25-Nano loopback top", "spw_de25_nano_top"),
 ]
 
 VHDL_COMMON = [
@@ -154,6 +168,21 @@ VHDL_GROUPS = [
             "examples/arty_a7100t/tb/spw_loopback_sim_top.vhd",
         ],
     ),
+    (
+        "VHDL DE25-Nano example",
+        VHDL_COMMON
+        + [
+            "rtl/vhdl/spwstream.vhd",
+            "rtl/vhdl/spw_axis_tx.vhd",
+            "rtl/vhdl/spw_axis_rx.vhd",
+            "rtl/vhdl/spw_axi_lite_regs.vhd",
+            "rtl/vhdl/spw_axi_top.vhd",
+            "examples/arty_a7100t/rtl/spw_loopback_axi.vhd",
+            "examples/de25_nano/tb/de25_reset_release_sim.vhd",
+            "examples/de25_nano/tb/de25_debug_sim.vhd",
+            "examples/de25_nano/rtl/spw_de25_nano_top.vhd",
+        ],
+    ),
 ]
 
 
@@ -181,15 +210,14 @@ def run(args: list[str], *, quiet: bool = False, input_text: str | None = None) 
 
 
 def ghdl_clean() -> None:
-    run(["ghdl", "--remove"])
-    for path in ROOT.glob("work-obj*.cf"):
-        path.unlink()
+    shutil.rmtree(GHDL_WORKDIR, ignore_errors=True)
+    GHDL_WORKDIR.mkdir(parents=True, exist_ok=True)
 
 
 def ghdl_analyze(label: str, sources: list[str]) -> None:
     print(f"\n== {label} ==")
     ghdl_clean()
-    run(["ghdl", "-a", "--std=08", "-fsynopsys", *sources])
+    run(["ghdl", "-a", *GHDL_OPTS, *sources])
 
 
 def yosys_check(top: YosysTop) -> None:
@@ -228,13 +256,13 @@ def lint_vhdl() -> None:
 
     print("\n== VHDL synthesis elaboration ==")
     ghdl_clean()
-    run(["ghdl", "-a", "--std=08", "-fsynopsys", *VHDL_SYNTH_SOURCES])
+    run(["ghdl", "-a", *GHDL_OPTS, *VHDL_SYNTH_SOURCES])
     run(
-        ["ghdl", "--synth", "--std=08", "-fsynopsys", "spwstream_synth_generic"],
+        ["ghdl", "--synth", *GHDL_OPTS, "spwstream_synth_generic"],
         quiet=True,
     )
     run(
-        ["ghdl", "--synth", "--std=08", "-fsynopsys", "spwstream_synth_fast"],
+        ["ghdl", "--synth", *GHDL_OPTS, "spwstream_synth_fast"],
         quiet=True,
     )
 

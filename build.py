@@ -91,6 +91,36 @@ def cmd_lint(args: argparse.Namespace) -> None:
     run(lint_args)
 
 
+def windows_temp_args(env: dict[str, str]) -> list[str]:
+    """Point pytest and simulator temp files at build/tmp/win (Windows only).
+
+    The shared %TEMP%\\pytest-of-<user> root can hold directories created by a
+    different account (e.g. a sandbox) that this user cannot open or delete,
+    which fails tests before simulation. Linux/WSL keep the system temp: an
+    unlinked temp file on a /mnt/c (drvfs) path breaks pytest's own capture.
+    """
+    tmp_root = ROOT / "build" / "tmp" / "win"
+    basetemp = tmp_root / "pytest"
+    sys_tmp = tmp_root / "sys"
+    hint = ("it may have been created by another account (e.g. a sandbox); "
+            "delete it as administrator")
+    try:
+        sys_tmp.mkdir(parents=True, exist_ok=True)
+        probe = sys_tmp / f"write_probe_{os.getpid()}"
+        probe.write_text("ok")
+        probe.unlink()
+    except OSError as exc:
+        raise SystemExit(f"ERROR: temp directory {sys_tmp} is not writable ({exc}); {hint}")
+    if basetemp.exists():
+        try:
+            list(basetemp.iterdir())
+        except OSError as exc:
+            raise SystemExit(f"ERROR: pytest basetemp {basetemp} is not accessible ({exc}); {hint}")
+    for name in ("TMP", "TEMP", "TMPDIR"):
+        env[name] = str(sys_tmp)
+    return ["--basetemp", str(basetemp)]
+
+
 def cmd_test(args: argparse.Namespace) -> None:
     if args.runner == "wsl" or (args.runner == "auto" and is_windows() and wsl_has_distro()):
         run_test_wsl(args)
@@ -108,11 +138,14 @@ def cmd_test(args: argparse.Namespace) -> None:
         require_python_package("cocotb_tools.runner")
 
     env = os.environ.copy()
+    temp_args = windows_temp_args(env) if is_windows() else []
     # tests/cocotb: AXI core regressions; examples/arty_a7100t/tb: the Arty
     # loopback example functional sim (engine + core, no fpgacapZero submodule
-    # needed for simulation).
+    # needed for simulation); examples/de25_nano/tb: the DE25-Nano board-level
+    # sim (reset-release stub instead of the Quartus-only vendor wrapper).
     pytest_args = [sys.executable, "-m", "pytest",
-                   "tests/cocotb", "examples/arty_a7100t/tb"]
+                   *temp_args,
+                   "tests/cocotb", "examples/arty_a7100t/tb", "examples/de25_nano/tb"]
     if args.hdl == "verilog":
         pytest_args.extend(["-k", "verilog"])
     elif args.hdl == "vhdl":
@@ -152,6 +185,19 @@ def cmd_vivado(args: argparse.Namespace) -> None:
     run(cmd)
 
 
+def cmd_quartus(args: argparse.Namespace) -> None:
+    """Build the DE25-Nano example with Quartus Prime Pro (outputs in quartus/)."""
+    cmd = [sys.executable, str(ROOT / "examples" / "de25_nano" / "build.py"),
+           "--hdl", args.hdl, "--flow", args.flow]
+    if args.quartus_bin:
+        cmd.extend(["--quartus-bin", args.quartus_bin])
+    if args.program:
+        cmd.append("--program")
+    if args.dry_run:
+        cmd.append("--dry-run")
+    run(cmd)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -186,6 +232,20 @@ def main() -> int:
     vivado_parser.add_argument("--vivado", default=None, help="path to the vivado executable")
     vivado_parser.add_argument("--dry-run", action="store_true", help="check flow wiring without building")
     vivado_parser.set_defaults(func=cmd_vivado)
+
+    quartus_parser = subparsers.add_parser(
+        "quartus", help="build the DE25-Nano (Agilex 5) example with Quartus Prime Pro")
+    quartus_parser.add_argument("--hdl", choices=("verilog", "vhdl"), default="verilog",
+                                help="HDL flavor of the example to build")
+    quartus_parser.add_argument("--flow", choices=("full", "synth"), default="full",
+                                help="full = compile to .sof; synth = synthesis only")
+    quartus_parser.add_argument("--quartus-bin", default=None,
+                                help="Quartus bin64 directory (default: tools on PATH)")
+    quartus_parser.add_argument("--program", action="store_true",
+                                help="program the board over JTAG after the compile")
+    quartus_parser.add_argument("--dry-run", action="store_true",
+                                help="check flow wiring without building")
+    quartus_parser.set_defaults(func=cmd_quartus)
 
     args = parser.parse_args()
     if getattr(args, "vhdl", False) and getattr(args, "verilog", False):
