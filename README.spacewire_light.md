@@ -220,4 +220,4 @@ Project page at OpenCores:
 Email:
 joris (at) jorisvr (dot) nl
 
-Verilog translation author: Leonardo Capossio - bard0 design - www.bard0.com - hello@bard0.com
+Verilog translation author: Leonardo Capossio - [bard0 design](https://www.bard0.com) - hello@bard0.com

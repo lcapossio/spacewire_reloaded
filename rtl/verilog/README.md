@@ -1,7 +1,7 @@
 SpaceWire Light Verilog 2001 translation RTL
 =================================
 
-Author: Leonardo Capossio - bard0 design - hello@bard0.com
+Author: Leonardo Capossio - [bard0 design](https://www.bard0.com) - hello@bard0.com
 
 This directory contains a Verilog 2001 translation of the standalone
 SpaceWire Light core.
@@ -67,7 +67,7 @@ The translated standalone Verilog RTL and benches carry:
  * Original copyright: `Copyright (C) 2009-2013 Joris van Rantwijk`
  * Translation copyright: `Copyright (C) 2026 Leonardo Capossio - bard0 design`
 
-Author: Leonardo Capossio - bard0 design - hello@bard0.com.
+Author: Leonardo Capossio - [bard0 design](https://www.bard0.com) - hello@bard0.com.
 
 This translation is a modified form of SpaceWire Light. Keep the original
 copyright and license terms from the repository root when distributing it.
