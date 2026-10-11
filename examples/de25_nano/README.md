@@ -66,7 +66,7 @@ assigned in [`de25_nano_pins.tcl`](de25_nano_pins.tcl):
 | `rtl/intel/de25_reset_release.v` | Vendor wrapper: Agilex configuration reset release (Quartus only) |
 | `rtl/intel/de25_reset_release_ip.ip` | Altera Reset Release IP used by the wrapper |
 | `rtl/intel/de25_debug.v` | Vendor wrapper: fcapz Intel ELA, EIO and EJTAG-AXI cores (Quartus only) |
-| `de25_nano.sdc` | Timing constraints (50 MHz `clk`) |
+| `de25_nano.sdc` | Timing constraints (50 MHz `clk`, JTAG TCK, skew/delay bounds on the fcapz async-FIFO Gray-pointer crossings) |
 | `de25_nano_pins.tcl` | Pin and I/O-standard assignments |
 | `build_de25.tcl` | Quartus project/compile script (driven by `build.py`) |
 | `build.py` | Build (and optional JTAG program) launcher |
@@ -215,28 +215,32 @@ Whole design (SpaceWire core, loopback engine, fcapz debug cores, reset logic):
 
 | Build | ALMs | Registers | RAM blocks (bits) | DSP / PLL | Pins | `clk` setup / hold slack | `clk` Fmax | TCK Fmax |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Verilog | 4,031 / 46,800 | 6,135 | 5 (86,016) | 0 / 0 | 7 | +15.169 / +0.044 ns | 207 MHz | 49.7 MHz |
-| VHDL | 4,015 / 46,800 | 6,096 | 5 (86,016) | 0 / 0 | 7 | +15.707 / +0.044 ns | 233 MHz | 49.7 MHz |
+| Verilog | 4,051 / 46,800 | 6,054 | 5 (86,016) | 0 / 0 | 7 | +13.520 / +0.031 ns | 154 MHz | 49.7 MHz |
+| VHDL | 4,005 / 46,800 | 6,053 | 5 (86,016) | 0 / 0 | 7 | +13.725 / +0.041 ns | 159 MHz | 49.7 MHz |
 
 By entity (Quartus fitter "ALMs needed"):
 
 | Entity | Verilog ALMs / registers / M20K | VHDL ALMs / registers / M20K |
 | --- | --- | --- |
-| SpaceWire core (`spw_axi_top`) | 227 / 292 / 2 | 227 / 294 / 2 |
-| Loopback engine (`spw_loopback_axi`) | 598 / 550 / 0 | 554 / 542 / 0 |
-| fcapz debug (`de25_debug`: ELA 16 x 1024, EIO, EJTAG-AXI) | 3,118 / 4,769 / 3 | 3,145 / 4,769 / 3 |
+| SpaceWire core (`spw_axi_top`) | 219 / 294 / 2 | 232 / 294 / 2 |
+| Loopback engine (`spw_loopback_axi`) | 586 / 550 / 0 | 555 / 542 / 0 |
+| fcapz debug (`de25_debug`: ELA 16 x 1024, EIO, EJTAG-AXI) | 3,160 / 4,769 / 3 | 3,133 / 4,769 / 3 |
 
 The fcapz debug cores are most of the design. The SpaceWire core itself is about
 230 ALMs plus its two RX/TX FIFO RAMs. Fmax is the Quartus restricted Fmax of the
-slowest corner. A full compile takes about 4.5 minutes on a 16-core machine
+slowest corner. The critical `clk` path is the engine's register-read mux
+(`r_addr` -> `s_axi_rdata`); Quartus only works to the 50 MHz requirement, so
+Fmax moves between compiles (an earlier compile of nearly the same design reached
+207 / 233 MHz). The fcapz async-FIFO Gray-pointer crossings meet their 8 ns
+`set_max_skew` / `set_net_delay` bounds with at least 5.9 / 7.2 ns of slack. A full compile takes about 4.5 minutes on a 16-core machine
 (8 Quartus processors); synthesis alone takes about 1 minute.
 
 ## Hardware results
 
 Measured on a DE25-Nano (`A5EB013BB23BE4SR1`, on-board USB-Blaster III) on
-2026-09-24, with fcapz host 0.4.9 and Quartus Prime Pro 26.1 `quartus_stp`. The
+2026-10-12, with fcapz host 0.4.9 and Quartus Prime Pro 26.1 `quartus_stp`. The
 same results were obtained for the Verilog and VHDL builds; each run programs
-the board first.
+the board first, except the soak straight after the fault-under-load run.
 
 | Check | Result |
 | --- | --- |
@@ -245,12 +249,12 @@ the board first.
 | Power-on self-check | 4 packets x (16 PRBS + EOP): TX = RX = 68, 0 errors |
 | Host data-mover | 5-byte packet + EOP looped back intact |
 | EIO | `0x0F` (link, bring-up, done, pass) |
-| Error injection | freeze -> `errdisc`, invert D -> `erresc`; link drops and recovers |
+| Error injection | freeze -> `errdisc`, invert D -> `erresc`; link drops and recovers, and the interrupted self-check re-runs with 0 errors |
 | TimeCodes | 4/4 round-tripped |
 | EEP / EOP | EEP arrives with `tuser = 1`, EOP with `tuser = 0` |
 | Fault under load | detected mid-stream; clean recovery, no new errors |
-| PRBS soak (10 Mbit/s, 10 s, straight after the fault-under-load run) | ~585,000 back-to-back packets, ~9.95 M characters, 0 errors, ~0.99 MChar/s |
-| PRBS soak (fresh configuration, 20 s) | 1,167,326 packets, 19.8 M characters, 0 errors |
+| PRBS soak (10 Mbit/s, 20 s, straight after the fault-under-load run, no reprogram) | Verilog 1,166,709 / VHDL 1,166,271 back-to-back packets, ~19.8 M characters, 0 errors, ~0.99 MChar/s |
+| PRBS soak (fresh configuration, 60 s) | Verilog 3,491,806 / VHDL 3,491,512 packets, ~59.4 M characters, 0 errors |
 | ELA capture (50 MHz sampling) | D/S toggling (about 5 samples per bit), `spw_do == spw_di` and `spw_so == spw_si` in every sample |
 
 The soak right after the fault-under-load run is the hardware regression for the

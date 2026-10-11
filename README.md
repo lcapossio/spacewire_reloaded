@@ -240,10 +240,10 @@ The complete DE25-Nano example (`spw_axi_top` in the generic configuration, the 
 
 | Source | Whole design ALMs | Registers | RAM blocks (bits) | DSP | `clk` setup / hold slack @ 50 MHz | `clk` Fmax | of which `spw_axi_top` (ALMs / registers / M20K) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Verilog | 4,031 / 46,800 | 6,135 | 5 (86,016) | 0 | +15.169 / +0.044 ns | 207 MHz | 227 / 292 / 2 |
-| VHDL | 4,015 / 46,800 | 6,096 | 5 (86,016) | 0 | +15.707 / +0.044 ns | 233 MHz | 227 / 294 / 2 |
+| Verilog | 4,051 / 46,800 | 6,054 | 5 (86,016) | 0 | +13.520 / +0.031 ns | 154 MHz | 219 / 294 / 2 |
+| VHDL | 4,005 / 46,800 | 6,053 | 5 (86,016) | 0 | +13.725 / +0.041 ns | 159 MHz | 232 / 294 / 2 |
 
-Most of the whole-design area is the fpgacapZero debug infrastructure (about 3,100 ALMs); the SpaceWire core itself is about 230 ALMs plus its two FIFO RAMs. Per-entity numbers are in [`examples/de25_nano/README.md`](examples/de25_nano/README.md).
+Most of the whole-design area is the fpgacapZero debug infrastructure (about 3,100 ALMs); the SpaceWire core itself is about 230 ALMs plus its two FIFO RAMs. The `clk` Fmax is set by the example engine's register-read mux, not the SpaceWire core, and since Quartus only works to the 50 MHz requirement it varies between compiles. Per-entity numbers are in [`examples/de25_nano/README.md`](examples/de25_nano/README.md).
 
 ### RTL-level trend metric (Yosys, CI)
 

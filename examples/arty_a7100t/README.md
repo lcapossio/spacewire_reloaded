@@ -22,7 +22,10 @@ that:
   host **data-mover** (push/pop N-Chars from the host). Each self-check run
   first flushes the receive side (discarding characters until the line has been
   quiet for 16 character times), so a run restarted after stopping mid-stream
-  never checks the stale tail of the previous run;
+  never checks the stale tail of the previous run. A START pulse or a soft reset
+  aborts the current run on the spot (the checker stops at once, and a TX beat
+  already offered to the core is held until accepted, per AXI-Stream); an
+  unfinished run interrupted by soft reset is re-run after bring-up;
 - presents an **AXI4 slave** register file to the fpgacapZero EJTAG-AXI bridge so
   the host drives and observes everything over JTAG.
 
@@ -126,9 +129,12 @@ loopback test on the board.
 
 A cocotb functional sim drives the engine's AXI4 slave exactly like fcapz does
 and checks, for both languages: the self-check and host data-mover loopbacks,
-continuous (loop) mode, stopping and restarting loop mode mid-stream, error
-injection + recovery, TimeCode loopback, EEP round-trip, and fault-under-load
-recovery (8 tests):
+continuous (loop) mode, stopping and restarting loop mode mid-stream, START
+while a loop run is active, soft reset mid-run, error injection + recovery
+(with a clean self-check after each recovery), TimeCode loopback, EEP
+round-trip, and fault-under-load recovery (10 tests). A monitor runs alongside
+every test and fails it if the engine ever retracts or changes a TX AXI-Stream
+beat before the core accepts it:
 
 ```sh
 python -m pytest examples/arty_a7100t/tb/test_spw_loopback_runner.py            # Verilog (Icarus)
@@ -164,7 +170,8 @@ loopback, and confirms the SpaceWire link-error detection and recovery. It
 freezes the outgoing D/S (a disconnect, which sets the sticky `errdisc` and drops
 the link), then inverts the outgoing `D` (a Data-line corruption, which raises a
 link error), and after each fault clears `ERRINJ` and pulses soft_reset to bring
-the link back up with the sticky error bits cleared. On external loopback the
+the link back up with the sticky error bits cleared, then checks that the
+interrupted self-check re-runs with traffic flowing and `ERRCOUNT` 0. On external loopback the
 injected fault genuinely leaves the FPGA on the wire:
 
 ```sh
@@ -229,16 +236,16 @@ fcapz --backend hw_server --port 3121 --tap xc7a100t axi-read 0x14   # -> 0x5350
 ### Hardware results
 
 Arty A7-100T, internal loopback, fpgacapZero v0.4.9 over hw_server (Vivado
-2025.2), 2026-10-11. Every run reprograms the bitstream first, except the
+2025.2), 2026-10-12. Every run reprograms the bitstream first, except the
 "stress after loadfault" row, which soaks the still-running design straight
 after `--loadfault` (stop/restart of the self-check mid-stream).
 
 | Check | generic Verilog (10 Mbit/s) | generic VHDL (10 Mbit/s) | fast Verilog (100 Mbit/s) |
 | --- | --- | --- | --- |
-| basic (IDs, self-check, data mover, EIO) | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 | PASS |
-| `--inject`, `--timecode`, `--eep`, `--loadfault` | PASS | PASS | PASS |
-| stress after loadfault, 20 s | 1,169,692 packets, ERR=0 | 1,169,524 packets, ERR=0 | 11,714,317 packets, ERR=0 |
-| `--stress 60` | 3,501,327 packets, 59.5M chars, ERR=0 (~0.99 MChar/s) | 3,496,178 packets, 59.4M chars, ERR=0 | 35,002,695 packets, 595M chars, ERR=0 (~9.86 MChar/s) |
+| basic (IDs, self-check, data mover, EIO) | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 |
+| `--inject` (self-check re-runs with ERR=0 after each recovery), `--timecode`, `--eep`, `--loadfault` | PASS | PASS | PASS |
+| stress after loadfault, 20 s | 1,195,587 packets, ERR=0 | 1,173,240 packets, ERR=0 | 11,723,308 packets, ERR=0 |
+| `--stress 60` | 3,528,256 packets, 60.0M chars, ERR=0 (~0.99 MChar/s) | 3,505,079 packets, 59.6M chars, ERR=0 | 35,256,590 packets, 599M chars, ERR=0 (~9.9 MChar/s) |
 | `ela_capture_demo.py` | PASS (D/S toggling, loopback holds) | - | - |
 
 ## FPGA resource usage and timing
@@ -249,9 +256,9 @@ implementation strategy. Post-route, all timing constraints met.
 
 | Build | HDL | Clocks | LUTs | Registers | BRAM | BUFG | MMCM | Setup WNS | Link rate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| generic | Verilog | clk 100 MHz | 4029 (6.4%) | 4826 (3.8%) | 4 | 3 | 0 | +2.189 ns | ~10 Mbit/s |
-| fast | Verilog | clk 100, rxclk 150, txclk 100 MHz | 4084 (6.4%) | 4998 (3.9%) | 4 | 6 | 1 | +2.108 ns | 100 Mbit/s |
-| generic | VHDL | clk 100 MHz | 4243 (6.7%) | 4737 (3.7%) | 4 | 3 | 0 | +2.018 ns | ~10 Mbit/s |
+| generic | Verilog | clk 100 MHz | 4027 (6.4%) | 4824 (3.8%) | 4 | 3 | 0 | +2.220 ns | ~10 Mbit/s |
+| fast | Verilog | clk 100, rxclk 150, txclk 100 MHz | 4042 (6.4%) | 4995 (3.9%) | 4 | 6 | 1 | +2.105 ns | 100 Mbit/s |
+| generic | VHDL | clk 100 MHz | 4243 (6.7%) | 4735 (3.7%) | 4 | 3 | 0 | +2.007 ns | ~10 Mbit/s |
 
 The fast build adds the MMCM (1) and extra clock buffers for the separate
 `rxclk`/`txclk` domains and the oversampling fast RX/TX front ends. IOB usage is
