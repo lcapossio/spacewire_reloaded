@@ -19,6 +19,9 @@ SpaceWire bit is ~10 samples wide.
     hw_server -d
     python examples/arty_a7100t/ela_capture_demo.py \
         --bitfile examples/arty_a7100t/spw_arty_a7100t_top.bit
+
+Intel/Altera boards use the usb_blaster backend (Quartus quartus_stp); the
+DE25-Nano example wraps this script as examples/de25_nano/ela_capture_demo.py.
 """
 
 from __future__ import annotations
@@ -42,6 +45,10 @@ HERE = Path(__file__).resolve().parent
 
 
 def make_transport(args):
+    if args.backend == "usb_blaster":
+        from fcapz.transport import QuartusStpTransport
+        return QuartusStpTransport(hardware_name=args.hardware,
+                                   quartus_stp_path=args.quartus_stp)
     if args.backend == "openocd":
         from fcapz.transport import OpenOcdTransport
         return OpenOcdTransport(port=args.port or 6666, tap=args.tap)
@@ -63,10 +70,21 @@ def transitions(samples, lsb):
     return t
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--backend", choices=("hw_server", "openocd"), default="hw_server")
+    p.add_argument("--backend", choices=("hw_server", "openocd", "usb_blaster"),
+                   default="hw_server")
+    p.add_argument("--hardware", default=None,
+                   help="usb_blaster: Quartus hardware name (default: first cable)")
+    p.add_argument("--quartus-stp", default=None,
+                   help="usb_blaster: quartus_stp executable (default: found on PATH)")
+    p.add_argument("--ela-chain", type=int, default=1,
+                   help="ELA JTAG chain (Arty: 1 = USER1; Intel: sld_virtual_jtag instance)")
+    p.add_argument("--ela-instance", type=int, default=0,
+                   help="ELA slot in a debug_multi manager (Arty: 0); -1 = standalone ELA")
+    p.add_argument("--sample-width", type=int, default=8,
+                   help="built ELA sample width; the D/S + status byte is bits [7:0]")
     p.add_argument("--bitfile", type=Path, default=HERE / "spw_arty_a7100t_top.bit")
     p.add_argument("--port", type=int, default=None)
     p.add_argument("--tap", default="xc7a100t.tap")
@@ -74,7 +92,7 @@ def main() -> int:
     p.add_argument("--depth", type=int, default=1024)  # must match built ELA DEPTH
     p.add_argument("--wave-cols", type=int, default=120)
     p.add_argument("--vcd", type=Path, default=HERE / "ela_capture.vcd")
-    args = p.parse_args()
+    args = p.parse_args(argv)
 
     from fcapz.ejtagaxi import EjtagAxiController
     from fcapz.analyzer import Analyzer, CaptureConfig, TriggerConfig, ProbeSpec
@@ -96,7 +114,12 @@ def main() -> int:
     time.sleep(0.05)
     print("link up, continuous self-check running; capturing ELA0 ...")
 
-    ela = Analyzer(t, instance=0)
+    if args.backend == "usb_blaster":
+        # QuartusStpTransport.connect() starts a new quartus_stp session;
+        # the open one would still hold the JTAG device, so release it.
+        t.close()
+    ela = Analyzer(t, chain=args.ela_chain,
+                   instance=None if args.ela_instance < 0 else args.ela_instance)
     ela.connect()
     # ELA built with DEPTH=1024 and NUM_SEGMENTS=4 -> 256 samples per segment;
     # the capture window (pre+post+1) must fit one segment.
@@ -105,7 +128,7 @@ def main() -> int:
         pretrigger=8,
         posttrigger=seg - 8 - 1,
         trigger=TriggerConfig(mode="value_match", value=0, mask=0),  # trigger now
-        sample_width=8,
+        sample_width=args.sample_width,
         depth=args.depth,
         probes=[ProbeSpec(name=n, width=1, lsb=b) for n, b in PROBES],
     )

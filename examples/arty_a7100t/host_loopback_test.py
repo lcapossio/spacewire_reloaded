@@ -11,7 +11,9 @@ Talks to the programmed board over JTAG and checks, end to end:
   * the same status mirrored on the EIO probe inputs.
 
 Requires the fcapz host package (``pip install`` the fpgacapZero host) and a
-backend: hw_server (default, Vivado/XSDB) or OpenOCD.
+backend: hw_server (default, Vivado/XSDB), OpenOCD, or usb_blaster (Quartus
+quartus_stp, for Intel/Altera boards; the DE25-Nano example wraps this script
+as examples/de25_nano/host_loopback_test.py).
 
 Examples:
     # hw_server (programs the bitstream on connect)
@@ -109,6 +111,13 @@ def poll_clear(fn, mask, tries=2000, delay=0.002):
 
 
 def make_transport(args):
+    if args.backend == "usb_blaster":
+        # Intel/Altera boards (e.g. the DE25-Nano example): Quartus quartus_stp
+        # drives the fcapz sld_virtual_jtag instances; the board must already
+        # be programmed (quartus_pgm).
+        from fcapz.transport import QuartusStpTransport
+        return QuartusStpTransport(hardware_name=args.hardware,
+                                   quartus_stp_path=args.quartus_stp)
     if args.backend == "openocd":
         from fcapz.transport import OpenOcdTransport
         return OpenOcdTransport(port=args.port or 6666, tap=args.tap)
@@ -124,7 +133,7 @@ def run(args) -> int:
     t = make_transport(args)
     axi = EjtagAxiController(t, chain=4)
     axi.connect()
-    print("connected to EJTAG-AXI bridge on USER4")
+    print("connected to EJTAG-AXI bridge (JTAG chain 4)")
 
     # --- identity ---
     expect(axi.axi_read(EXAMPLE_ID) == EXPECT_EXAMPLE_ID, "EXAMPLE_ID == 'SPWL'")
@@ -181,13 +190,18 @@ def run(args) -> int:
     expect(rx_data == payload, f"data-mover loopback payload {rx_data} == {payload}")
     expect((got[-1] & (1 << 8)) and not (got[-1] & (1 << 9)), "data-mover EOP terminal beat")
 
-    # --- EIO status mirror (USER1 slot 2) ---
+    # --- EIO status mirror (Arty: USER1 manager slot 2; DE25: vJTAG instance 3) ---
     try:
-        eio = EioController(t, chain=1, instance=2)
+        if args.backend == "usb_blaster":
+            # QuartusStpTransport.connect() starts a new quartus_stp session;
+            # the open one would still hold the JTAG device, so release it.
+            t.close()
+        eio = EioController(t, chain=args.eio_chain,
+                            instance=None if args.eio_instance < 0 else args.eio_instance)
         eio.connect()
         ein = eio.read_inputs()
-        print(f"  EIO0 probe_in = {ein:#04x} (bit0 link_running, bit4 selftest_pass)")
-        expect(ein & 0x1, "EIO mirrors link_running")
+        print(f"  EIO probe_in = {ein:#04x}")
+        expect(ein & 0x1, "EIO bit0 mirrors link status")
     except Exception as exc:  # EIO is a secondary surface; don't fail the run on it
         print(f"  note: EIO read skipped ({exc})")
 
@@ -203,7 +217,7 @@ def run_stress(args) -> int:
     t = make_transport(args)
     axi = EjtagAxiController(t, chain=4)
     axi.connect()
-    print("connected to EJTAG-AXI bridge on USER4")
+    print("connected to EJTAG-AXI bridge (JTAG chain 4)")
     expect(axi.axi_read(EXAMPLE_ID) == EXPECT_EXAMPLE_ID, "EXAMPLE_ID == 'SPWL'")
     poll(lambda: axi.axi_read(STATUS), ST_BRINGUP_DONE)
     poll(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
@@ -419,14 +433,23 @@ def run_loadfault(args) -> int:
     return 0
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--backend", choices=("hw_server", "openocd"), default="hw_server")
+    p.add_argument("--backend", choices=("hw_server", "openocd", "usb_blaster"),
+                   default="hw_server")
     p.add_argument("--bitfile", type=Path, default=DEFAULT_BIT)
     p.add_argument("--port", type=int, default=None)
     p.add_argument("--tap", default="xc7a100t.tap")
     p.add_argument("--fpga", default="xc7a100t")
+    p.add_argument("--hardware", default=None,
+                   help="usb_blaster: Quartus hardware name (default: first cable)")
+    p.add_argument("--quartus-stp", default=None,
+                   help="usb_blaster: quartus_stp executable (default: found on PATH)")
+    p.add_argument("--eio-chain", type=int, default=1,
+                   help="EIO JTAG chain (Arty: 1 = USER1; Intel: sld_virtual_jtag instance)")
+    p.add_argument("--eio-instance", type=int, default=2,
+                   help="EIO slot in a debug_multi manager (Arty: 2); -1 = standalone EIO")
     p.add_argument("--stress", type=float, default=0.0,
                    help="run a continuous back-to-back PRBS soak for N seconds")
     p.add_argument("--poll-interval", type=float, default=10.0,
@@ -440,7 +463,7 @@ def main() -> int:
                    help="check EEP (error end of packet) round-trips with tuser=1")
     p.add_argument("--loadfault", action="store_true",
                    help="inject a fault under sustained load and check clean recovery")
-    args = p.parse_args()
+    args = p.parse_args(argv)
     try:
         if args.inject:
             return run_inject(args)
