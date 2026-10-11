@@ -81,6 +81,14 @@ async def test_selftest_lights_all_leds(dut):
     await Timer(200, unit="ns")
     assert str(dut.rst.value) == "0", "reset must release after ninit_done falls"
 
+    # LED order: bring-up completes (first STATUS read) well before the link can
+    # reach Run, so LEDR0 must light on its own first. Catches an LEDR0/LEDR1
+    # swap between the Verilog and VHDL tops.
+    while leds(dut) == LEDS_ALL_OFF:
+        await ClockCycles(dut.clk, 10)
+    assert leds(dut) == "1110", (
+        f"first lit LED must be LEDR0 (bringup_done), got {describe(leds(dut))}")
+
     elapsed = await wait_all_on(dut, "power-up")
     dut._log.info("all LEDs lit after ~%.1f us (bring-up + link + self-check pass)",
                   elapsed)

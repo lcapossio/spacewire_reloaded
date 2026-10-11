@@ -212,7 +212,7 @@ module spw_de25_nano_top #(
     );
 
     // ---- LEDs: standalone status (DE25-Nano LEDs are active-low) ----
-    wire [3:0] led_status = {selftest_pass, selftest_done, bringup_done, link_running};
+    wire [3:0] led_status = {selftest_pass, selftest_done, link_running, bringup_done};
     assign led = (LED_ACTIVE_LOW != 0) ? ~led_status : led_status;
 
 endmodule
