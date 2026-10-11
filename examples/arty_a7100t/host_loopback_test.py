@@ -195,8 +195,9 @@ def run(args) -> int:
         if args.backend == "usb_blaster":
             # One quartus_stp session per controller: the open one holds the
             # JTAG device, and a closed QuartusStpTransport must not be
-            # reconnected (its old stdout reader can post a stale EOF into
-            # the new session), so release it and start a fresh transport.
+            # reconnected by fcapz hosts up to 0.4.9 (its old stdout reader can
+            # post a stale EOF into the new session; fixed upstream after
+            # 0.4.9), so release it and start a fresh transport.
             t.close()
             t = make_transport(args)
         eio = EioController(t, chain=args.eio_chain,
