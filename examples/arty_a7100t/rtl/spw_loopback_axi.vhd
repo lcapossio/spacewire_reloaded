@@ -523,8 +523,15 @@ begin
                     s_axis_tready_r <= '1';
                     case tstate is
                         when T_IDLE =>
-                            m_axis_tvalid_r <= '0';
-                            if (bringup_done_r = '1') and (link_running_i = '1') and
+                            -- AXI-Stream: never retract a beat. The last beat
+                            -- of an aborted run (TVALID high, not yet accepted)
+                            -- is held until the core takes it; the flush of the
+                            -- next run then discards it on the RX side.
+                            if (m_axis_tvalid_r = '0') or (m_axis_tready = '1') then
+                                m_axis_tvalid_r <= '0';
+                            end if;
+                            if ((m_axis_tvalid_r = '0') or (m_axis_tready = '1')) and
+                               (bringup_done_r = '1') and (link_running_i = '1') and
                                ((selftest_start_pulse = '1') or (selftest_done_r = '0')) then
                                 tx_idx <= 0; exp_idx <= 0;
                                 tx_pkt <= 0; rx_pkt <= 0;
@@ -535,6 +542,7 @@ begin
                                 selftest_busy_r <= '1';
                                 selftest_done_r <= '0';
                                 selftest_pass_r <= '0';
+                                check_active <= '0';
                                 flush_cnt <= 0;
                                 tstate <= T_FLUSH;
                             end if;
@@ -542,7 +550,11 @@ begin
                             -- Discard stale RX (tready=1, checker inactive) until
                             -- the line has been quiet for FLUSH_IDLE clocks.
                             m_axis_tvalid_r <= '0';
-                            if s_axis_tvalid = '1' then
+                            if (bringup_done_r = '0') or (link_running_i = '0') then
+                                -- Link lost (or bring-up re-running): wait in
+                                -- T_IDLE and start a fresh run when it is back.
+                                tstate <= T_IDLE;
+                            elsif s_axis_tvalid = '1' then
                                 flush_cnt <= 0;
                             elsif flush_cnt = FLUSH_IDLE - 1 then
                                 check_active <= '1';
@@ -624,9 +636,18 @@ begin
                         end if;
                     end if;
 
+                    -- START and soft reset abort the current run: the checker
+                    -- stops at once (stale characters must never reach a
+                    -- reseeded PRBS) and the next run starts from T_IDLE with a
+                    -- fresh flush. Soft reset keeps selftest_done_r, so an
+                    -- unfinished run is re-run after bring-up and a finished
+                    -- one-shot stays done.
+                    if (selftest_start_pulse = '1') or (soft_reset_pulse = '1') then
+                        tstate <= T_IDLE;
+                        check_active <= '0';
+                    end if;
                     if selftest_start_pulse = '1' then
                         selftest_done_r <= '0';
-                        tstate <= T_IDLE;
                     end if;
                 else
                     -- data-mover

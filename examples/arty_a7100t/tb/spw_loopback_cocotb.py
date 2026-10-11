@@ -136,7 +136,27 @@ async def poll_until_clear(dut, addr, mask, timeout=200000):
     raise TimeoutError(f"bit(s) {mask:#x} never cleared at {addr:#x} (last={val:#x})")
 
 
+async def tx_axis_hold_monitor(dut):
+    """AXI-Stream rule on the engine -> core TX stream: once TVALID is high
+    without TREADY, TVALID must stay high and the beat (data/last/user) stable
+    until the handshake. Runs alongside every test; a violation fails it."""
+    pending = None
+    while True:
+        await RisingEdge(dut.clk)
+        await ReadOnly()
+        if str(dut.rst.value) != "0":
+            pending = None
+            continue
+        valid = str(dut.tx_tvalid.value) == "1"
+        beat = (str(dut.tx_tdata.value), str(dut.tx_tlast.value), str(dut.tx_tuser.value))
+        if pending is not None:
+            assert valid, f"TX AXIS: TVALID retracted before handshake (beat {pending})"
+            assert beat == pending, f"TX AXIS: beat changed while stalled {pending} -> {beat}"
+        pending = beat if valid and str(dut.tx_tready.value) != "1" else None
+
+
 async def reset(dut):
+    cocotb.start_soon(tx_axis_hold_monitor(dut))
     dut.rst.value = 1
     for sig in ("s_axi_awvalid", "s_axi_wvalid", "s_axi_bready",
                 "s_axi_arvalid", "s_axi_rready", "s_axi_awlen", "s_axi_arlen",
@@ -309,6 +329,60 @@ async def test_loop_stop_restart(dut):
 
 
 @cocotb.test()
+async def test_start_while_running(dut):
+    """START while continuous mode is running (selftest_en kept high): the new
+    run must stop checking at once and flush the old stream before it checks
+    again (regression for Bug 33: the checker stayed on through the flush)."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+    await poll_until(dut, STATUS, ST_LINK_RUNNING)
+    await poll_until(dut, STATUS, ST_SELFTEST_DONE)       # power-on one-shot run
+
+    run = CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP | CTRL_SELFTEST_STRT
+    await axi_write(dut, CTRL, run)
+    await loop_until_packets(dut, 6, "first loop run")
+    for n in range(2):
+        await axi_write(dut, CTRL, run)                    # restart, no stop first
+        pkts, txc, rxc = await loop_until_packets(dut, 6, f"START while running #{n}",
+                                                  polls=400)
+        assert rxc <= txc, f"stale RX counted after START: TX={txc} RX={rxc}"
+        dut._log.info(f"START while running #{n}: {pkts} packets, TX={txc} RX={rxc} ERR=0")
+    await axi_write(dut, CTRL, 0x0)
+
+
+@cocotb.test()
+async def test_soft_reset_mid_run(dut):
+    """Soft reset while continuous mode is running: the core reset discards the
+    characters in flight, so the run must be aborted and re-run (flushed) after
+    bring-up instead of carrying on with a stale PRBS (regression for Bug 34)."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+    await poll_until(dut, STATUS, ST_LINK_RUNNING)
+    await poll_until(dut, STATUS, ST_SELFTEST_DONE)       # power-on one-shot run
+
+    await axi_write(dut, CTRL, CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP | CTRL_SELFTEST_STRT)
+    p_old, _, _ = await loop_until_packets(dut, 6, "loop run before soft reset")
+
+    await axi_write(dut, CTRL, CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP | CTRL_SOFT_RESET)
+    await poll_until(dut, STATUS, ST_LINK_RUNNING)
+    # Wait for the re-run to start (its counters restart from 0); no error may
+    # be counted at any point, including while the link is coming back up.
+    for _ in range(400):
+        for _ in range(1000):
+            await RisingEdge(dut.clk)
+        errs = await axi_read(dut, ERRCOUNT)
+        assert errs == 0, f"soft reset mid-run: ERRCOUNT={errs}"
+        if await axi_read(dut, PKTCOUNT) < p_old:
+            break
+    else:
+        raise TimeoutError("soft reset mid-run: the self-check run was not restarted")
+    pkts, txc, rxc = await loop_until_packets(dut, 6, "run after soft reset", polls=400)
+    assert rxc <= txc, f"stale RX counted after soft reset: TX={txc} RX={rxc}"
+    dut._log.info(f"soft reset mid-run: re-run {pkts} packets, TX={txc} RX={rxc} ERR=0")
+    await axi_write(dut, CTRL, 0x0)
+
+
+@cocotb.test()
 async def test_error_injection(dut):
     """Inject errors on the internal loopback line and check link-error detection
     (sticky spw error bits + link drop) and recovery via soft_reset."""
@@ -325,6 +399,16 @@ async def test_error_injection(dut):
                         CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP | CTRL_SOFT_RESET)
         await poll_until(dut, STATUS, ST_LINK_RUNNING)        # link back up
         await poll_until_clear(dut, STATUS, ERR_ANY)          # sticky errors cleared
+        # soft reset re-runs the interrupted loop run (flushed): traffic resumes
+        # and the new run counts no errors
+        for _ in range(20000):
+            await RisingEdge(dut.clk)
+        pa = await axi_read(dut, PKTCOUNT)
+        for _ in range(20000):
+            await RisingEdge(dut.clk)
+        pb = await axi_read(dut, PKTCOUNT)
+        eb = await axi_read(dut, ERRCOUNT)
+        assert pb > pa and eb == 0,             f"self-check after recovery: packets {pa} -> {pb}, ERRCOUNT={eb}"
 
     # 1) freeze the D/S line -> the line stops; the receiver flags a link error
     # (errdisc if it goes quiet, errpar if a char is truncated mid-flight) + drop

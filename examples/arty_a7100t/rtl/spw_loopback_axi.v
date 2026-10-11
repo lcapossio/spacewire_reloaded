@@ -65,7 +65,10 @@
  * rate), and only then does transmission start. Stopping a run (selftest_en=0)
  * mid-stream leaves characters queued in the core FIFOs and on the wire; without
  * the flush the restarted checker would see that stale tail and stay out of
- * PRBS step for the whole run.
+ * PRBS step for the whole run. The checker stays off for the whole flush: a
+ * START pulse, a soft reset, or the link dropping all abort the current run
+ * (soft reset re-runs an unfinished one after bring-up), and the next run
+ * flushes again before it checks anything.
  */
 
 `timescale 1ns/1ps
@@ -511,8 +514,14 @@ module spw_loopback_axi #(
                 s_axis_tready <= 1'b1; // checker always accepts RX
                 case (tstate)
                     T_IDLE: begin
-                        m_axis_tvalid <= 1'b0;
-                        if (bringup_done_r && link_running &&
+                        // AXI-Stream: never retract a beat. The last beat of
+                        // an aborted run (TVALID high, not yet accepted) is
+                        // held until the core takes it; the flush of the next
+                        // run then discards it on the RX side.
+                        if (!m_axis_tvalid || m_axis_tready)
+                            m_axis_tvalid <= 1'b0;
+                        if ((!m_axis_tvalid || m_axis_tready) &&
+                            bringup_done_r && link_running &&
                             (selftest_start_pulse || !selftest_done_r)) begin
                             tx_idx          <= 8'd0;
                             exp_idx         <= 8'd0;
@@ -526,6 +535,7 @@ module spw_loopback_axi #(
                             selftest_busy_r <= 1'b1;
                             selftest_done_r <= 1'b0;
                             selftest_pass_r <= 1'b0;
+                            check_active    <= 1'b0;
                             flush_cnt       <= 16'd0;
                             tstate          <= T_FLUSH;
                         end
@@ -534,7 +544,11 @@ module spw_loopback_axi #(
                         // Discard stale RX (s_axis_tready=1, checker inactive)
                         // until the line has been quiet for FLUSH_IDLE clocks.
                         m_axis_tvalid <= 1'b0;
-                        if (s_axis_tvalid) begin
+                        if (!(bringup_done_r && link_running)) begin
+                            // Link lost (or bring-up re-running): wait in
+                            // T_IDLE and start a fresh run when it is back.
+                            tstate <= T_IDLE;
+                        end else if (s_axis_tvalid) begin
                             flush_cnt <= 16'd0;
                         end else if (flush_cnt == FLUSH_IDLE - 1) begin
                             check_active <= 1'b1;
@@ -621,10 +635,17 @@ module spw_loopback_axi #(
                         exp_idx <= exp_idx + 1'b1;
                     end
                 end
-                if (selftest_start_pulse) begin
-                    selftest_done_r <= 1'b0;
+                // START and soft reset abort the current run: the checker stops
+                // at once (stale characters must never reach a reseeded PRBS)
+                // and the next run starts from T_IDLE with a fresh flush.
+                // Soft reset keeps selftest_done_r, so an unfinished run is
+                // re-run after bring-up and a finished one-shot stays done.
+                if (selftest_start_pulse || soft_reset_pulse) begin
                     tstate          <= T_IDLE;
+                    check_active    <= 1'b0;
                 end
+                if (selftest_start_pulse)
+                    selftest_done_r <= 1'b0;
             end else begin
                 // ---- Host data-mover ----
                 selftest_busy_r <= 1'b0;

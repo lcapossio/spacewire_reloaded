@@ -272,8 +272,9 @@ def run_inject(args) -> int:
     axi = EjtagAxiController(t, chain=4)
     axi.connect()
     poll(lambda: axi.axi_read(STATUS), ST_BRINGUP_DONE)
-    # continuous self-check so N-Chars flow (needed for the parity/invert case)
-    axi.axi_write(CTRL, CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP)
+    # continuous self-check so N-Chars flow (needed for the parity/invert case);
+    # START because the power-on one-shot run has already finished by now
+    axi.axi_write(CTRL, CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP | CTRL_SELFTEST_STRT)
     poll(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
     expect(not (axi.axi_read(STATUS) & ERR_ANY), "link running, no errors before injection")
 
@@ -282,6 +283,14 @@ def run_inject(args) -> int:
         axi.axi_write(CTRL, CTRL_SELFTEST_EN | CTRL_SELFTEST_LOOP | CTRL_SOFT_RESET)
         poll(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
         poll_clear(lambda: axi.axi_read(STATUS), ERR_ANY)
+        # soft reset aborts the interrupted run and re-runs it (flushed) after
+        # bring-up: traffic must resume with a clean self-check
+        time.sleep(0.2)
+        pa = axi.axi_read(PKTCOUNT)
+        time.sleep(0.2)
+        pb, eb = axi.axi_read(PKTCOUNT), axi.axi_read(ERRCOUNT)
+        expect(pb > pa and eb == 0,
+               f"self-check re-runs cleanly after recovery (packets {pa:,} -> {pb:,}, ERRCOUNT={eb})")
 
     names = {ERR_DISC: "errdisc", ERR_PAR: "errpar", ERR_ESC: "erresc", ERR_CRED: "errcred"}
 
