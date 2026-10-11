@@ -84,7 +84,7 @@ def main() -> int:
             raise SystemExit(f"ERROR: quartus_pgm failed (exit {res.returncode})")
 
     extra = []
-    if "--quartus-stp" not in rest:
+    if not any(a == "--quartus-stp" or a.startswith("--quartus-stp=") for a in rest):
         extra = ["--quartus-stp", find_tool("quartus_stp", own.quartus_bin)]
     return common.main(DE25_DEFAULTS + extra + rest)
 

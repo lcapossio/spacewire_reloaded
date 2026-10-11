@@ -193,9 +193,12 @@ def run(args) -> int:
     # --- EIO status mirror (Arty: USER1 manager slot 2; DE25: vJTAG instance 3) ---
     try:
         if args.backend == "usb_blaster":
-            # QuartusStpTransport.connect() starts a new quartus_stp session;
-            # the open one would still hold the JTAG device, so release it.
+            # One quartus_stp session per controller: the open one holds the
+            # JTAG device, and a closed QuartusStpTransport must not be
+            # reconnected (its old stdout reader can post a stale EOF into
+            # the new session), so release it and start a fresh transport.
             t.close()
+            t = make_transport(args)
         eio = EioController(t, chain=args.eio_chain,
                             instance=None if args.eio_instance < 0 else args.eio_instance)
         eio.connect()
