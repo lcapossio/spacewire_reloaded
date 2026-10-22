@@ -17,24 +17,34 @@ domains in five ways:
    only after the handshake flip has crossed a `syncdff`.
 5. The D/S line samplers, whose input is asynchronous by definition.
 
-The constraints give 1-4 a datapath-only maximum delay and make 5 a false path.
+Vivado and Radiant get a datapath-only maximum delay on 1-4 and a false path on
+5. Quartus has no datapath-only delay, so its file false-paths each crossing
+and bounds the routing with `set_net_delay` and `set_max_skew`.
 
 ## Files
 
 | File                    | Tool flow                                   |
 |-------------------------|---------------------------------------------|
 | `spw_cdc.xdc`           | Xilinx Vivado                               |
-| `spw_cdc.sdc`           | Intel Quartus (Prime / TimeQuest)           |
-| `spw_cdc_lattice.sdc`   | Lattice Radiant / Diamond (Synplify Pro)    |
+| `spw_cdc.sdc`           | Intel Quartus Prime Pro                     |
+| `spw_cdc_lattice.sdc`   | Lattice Radiant                             |
 
-`spw_cdc.xdc` is verified: the Arty A7-100T fast build
-([`examples/arty_a7100t`](../examples/arty_a7100t)) reads it, and
-`report_exceptions` shows every crossing above covered, none ignored, and no
-same-domain path affected, in both the Verilog and VHDL netlists. The Intel and
-Lattice files are still **templates**: they constrain only the `syncdff`
-crossings (1) and have not been run through those tools in this repo. Confirm
-the cell-name patterns against your post-synthesis netlist, since hierarchy
-separators and `*_reg` suffixes vary by tool and version.
+Verification status (fast configuration, Verilog and VHDL netlists):
+
+- `spw_cdc.xdc`: verified in the Arty A7-100T fast build
+  ([`examples/arty_a7100t`](../examples/arty_a7100t)). `report_exceptions`
+  shows every crossing covered, none ignored, and no same-domain path affected.
+  The Arty fast bitstreams pass the hardware suite.
+- `spw_cdc.sdc`: verified with Quartus Pro 26.1 on Agilex 5
+  (`A5EB013BB23BE4SR1`) in an out-of-context fast-core project. Without it,
+  78 setup/recovery paths cross between the three clocks and three clock
+  pairs fail timing.
+  With it, no crossing path is left and no constraint is ignored, and the
+  same-domain path counts match a clocks-only analysis of the same netlist.
+- `spw_cdc_lattice.sdc`: written in the Radiant constraint syntax but **not yet
+  run through Radiant** here. Check `sta_report_constraints` for constraints
+  that matched nothing, and confirm the cell-name patterns against your
+  synthesized netlist.
 
 ## How to use
 
@@ -44,7 +54,11 @@ separators and `*_reg` suffixes vary by tool and version.
    definitions. Keep `clk`, `rxclk` and `txclk` out of separate asynchronous
    clock groups (and do not false-path between them): clock groups and false
    paths take priority over `set_max_delay`, so they would silently disable
-   these bounds. In Vivado, check with `report_exceptions -ignored`.
+   these bounds (Vivado, Radiant). In Vivado, check with
+   `report_exceptions -ignored`; in Quartus, `report_sdc -ignored`. The
+   Quartus file's `set_net_delay`/`set_max_skew` bounds hold even under
+   asynchronous clock groups. In the Lattice file, set the three clock-name
+   variables at the top to your clock names.
    `spw_cdc.xdc` must stay plain XDC: Vivado rejects Tcl control flow
    (`if`, `foreach`, `puts`) in an XDC file and drops the rest of it.
 3. Set `spw_cdc_max_delay_ns` to the period (ns) of the **fastest** clock that
