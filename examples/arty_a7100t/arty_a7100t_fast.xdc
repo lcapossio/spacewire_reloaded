@@ -3,9 +3,9 @@
 # Author: Leonardo Capossio - bard0 design - hello@bard0.com
 #
 # Arty A7-100T constraints for the FAST SpaceWire loopback build (USE_MMCM=1,
-# RXIMPL=TXIMPL=fast). Physical pins + primary clocks only; the MMCM-generated
-# rxclk/txclk clock groups and the CDC max-delay (constraints/spw_cdc.xdc) are
-# applied post-synthesis by build_arty.tcl because they reference objects that
+# RXIMPL=TXIMPL=fast). Physical pins + primary clocks only; the clock groups
+# (arty_a7100t_fast_cdc.xdc) and the core CDC bounds (constraints/spw_cdc.xdc)
+# are read post-synthesis by build_arty.tcl because they reference objects that
 # do not exist until the netlist is built.
 # Board: Digilent Arty A7-100T (xc7a100tcsg324-1).
 

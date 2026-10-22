@@ -107,6 +107,7 @@ Then build a bitstream (Vivado must be on `PATH`, or pass `--vivado`):
 python examples/arty_a7100t/build.py --hdl verilog            # spw_arty_a7100t_top.bit
 python examples/arty_a7100t/build.py --hdl vhdl               # spw_arty_a7100t_top_vhdl.bit
 python examples/arty_a7100t/build.py --hdl verilog --fast     # spw_arty_a7100t_top_fast.bit
+python examples/arty_a7100t/build.py --hdl vhdl --fast        # spw_arty_a7100t_top_vhdl_fast.bit
 python examples/arty_a7100t/build.py --hdl verilog --external # spw_arty_a7100t_top_ext.bit (jumper JA1->JA7, JA4->JA10)
 ```
 
@@ -120,8 +121,11 @@ gray-coded `rxclk -> clk` head-pointer crossing and the `clk <-> txclk` transmit
 crossings are real clock-domain crossings on hardware, and it sets
 `LINK_TXDIVCNT=0` for a **100 Mbit/s** SpaceWire link (`txclk/(LINK_TXDIVCNT+1)`,
 oversampled 3x by the 150 MHz DDR fast RX). The fast build applies
-[`constraints/spw_cdc.xdc`](../../constraints/spw_cdc.xdc) (post-synthesis, plus
-asynchronous clock groups), so it is also what exercises that constraint file.
+[`constraints/spw_cdc.xdc`](../../constraints/spw_cdc.xdc) post-synthesis, so it
+is also what exercises that constraint file. `rxclk` and `txclk` are MMCM
+outputs of the board clock and stay in its clock group
+([`arty_a7100t_fast_cdc.xdc`](arty_a7100t_fast_cdc.xdc)); only the JTAG TCK is
+an asynchronous group. Separate groups would override the core's CDC bounds.
 Both builds meet timing on `xc7a100tcsg324-1` and pass the same fcapz host
 loopback test on the board.
 
@@ -239,17 +243,18 @@ fcapz --backend hw_server --port 3121 --tap xc7a100t axi-read 0x14   # -> 0x5350
 
 Arty A7-100T, internal loopback, fpgacapZero `44d1059` (cores and host from the
 submodule) over hw_server (Vivado
-2025.2), 2026-10-12. Every run reprograms the bitstream first, except the
+2025.2): generic builds 2026-10-12, fast builds 2026-10-13 (rebuilt with the
+corrected CDC constraints). Every run reprograms the bitstream first, except the
 "stress after loadfault" row, which soaks the still-running design straight
 after `--loadfault` (stop/restart of the self-check mid-stream).
 
-| Check | generic Verilog (10 Mbit/s) | generic VHDL (10 Mbit/s) | fast Verilog (100 Mbit/s) |
-| --- | --- | --- | --- |
-| basic (IDs, self-check, data mover, EIO) | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 |
-| `--inject` (self-check re-runs with ERR=0 after each recovery), `--timecode`, `--eep`, `--loadfault` | PASS | PASS | PASS |
-| stress after loadfault, 20 s | 1,170,499 packets, ERR=0 | 1,169,037 packets, ERR=0 | 11,697,578 packets, ERR=0 |
-| `--stress 60` | 3,501,487 packets, 59.5M chars, ERR=0 (~0.99 MChar/s) | 3,499,282 packets, 59.5M chars, ERR=0 | 35,018,196 packets, 595M chars, ERR=0 (~9.9 MChar/s) |
-| `ela_capture_demo.py` | PASS (D/S toggling, loopback holds) | - | - |
+| Check | generic Verilog (10 Mbit/s) | generic VHDL (10 Mbit/s) | fast Verilog (100 Mbit/s) | fast VHDL (100 Mbit/s) |
+| --- | --- | --- | --- | --- |
+| basic (IDs, self-check, data mover, EIO) | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 |
+| `--inject` (self-check re-runs with ERR=0 after each recovery), `--timecode`, `--eep`, `--loadfault` | PASS | PASS | PASS | PASS |
+| stress after loadfault, 20 s | 1,170,499 packets, ERR=0 | 1,169,037 packets, ERR=0 | 11,686,557 packets, ERR=0 | 11,700,068 packets, ERR=0 |
+| `--stress 60` | 3,501,487 packets, 59.5M chars, ERR=0 (~0.99 MChar/s) | 3,499,282 packets, 59.5M chars, ERR=0 | 35,008,639 packets, 595M chars, ERR=0 (~9.9 MChar/s) | 34,986,200 packets, 595M chars, ERR=0 (~9.9 MChar/s) |
+| `ela_capture_demo.py` | PASS (D/S toggling, loopback holds) | - | - | - |
 
 ## FPGA resource usage and timing
 
@@ -260,11 +265,14 @@ implementation strategy. Post-route, all timing constraints met.
 | Build | HDL | Clocks | LUTs | Registers | BRAM | BUFG | MMCM | Setup WNS | Link rate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | generic | Verilog | clk 100 MHz | 3883 (6.1%) | 4826 (3.8%) | 4 | 3 | 0 | +2.145 ns | ~10 Mbit/s |
-| fast | Verilog | clk 100, rxclk 150, txclk 100 MHz | 3893 (6.1%) | 4996 (3.9%) | 4 | 6 | 1 | +1.630 ns | 100 Mbit/s |
+| fast | Verilog | clk 100, rxclk 150, txclk 100 MHz | 3893 (6.1%) | 4996 (3.9%) | 4 | 6 | 1 | +1.036 ns | 100 Mbit/s |
 | generic | VHDL | clk 100 MHz | 4246 (6.7%) | 4858 (3.8%) | 4 | 3 | 0 | +1.990 ns | ~10 Mbit/s |
+| fast | VHDL | clk 100, rxclk 150, txclk 100 MHz | 4309 (6.8%) | 5027 (4.0%) | 4 | 6 | 1 | +1.525 ns | 100 Mbit/s |
 
 The fast build adds the MMCM (1) and extra clock buffers for the separate
-`rxclk`/`txclk` domains and the oversampling fast RX/TX front ends. IOB usage is
+`rxclk`/`txclk` domains and the oversampling fast RX/TX front ends. Its setup
+WNS includes the `clk`/`rxclk`/`txclk` crossings, bounded to 5 ns by
+`constraints/spw_cdc.xdc` (all builds: 0 critical warnings). IOB usage is
 11 in all builds. SpaceWire run bit rate is `txclk/(LINK_TXDIVCNT+1)`
 (generic `LINK_TXDIVCNT=9` -> ~10 Mbit/s; fast `LINK_TXDIVCNT=0` -> 100 Mbit/s).
 
