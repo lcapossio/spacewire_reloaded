@@ -249,13 +249,19 @@ split receive/transmit CDC constraint files). Every run reprograms the bitstream
 "stress after loadfault" row, which soaks the still-running design straight
 after `--loadfault` (stop/restart of the self-check mid-stream).
 
+Re-verified on 2026-11-02 after the `syncdff` `d`/`q` port rename. All four
+builds were rebuilt with the same resources and timing as the table below.
+`host_loopback_test.py` (basic, `--inject`, `--timecode`, `--eep`,
+`--loadfault`, `--stress 60` with ERR=0) and `ela_capture_demo.py` were run on
+each build: 28/28 PASS.
+
 | Check | generic Verilog (10 Mbit/s) | generic VHDL (10 Mbit/s) | fast Verilog (100 Mbit/s) | fast VHDL (100 Mbit/s) |
 | --- | --- | --- | --- | --- |
 | basic (IDs, self-check, data mover, EIO) | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 |
 | `--inject` (self-check re-runs with ERR=0 after each recovery), `--timecode`, `--eep`, `--loadfault` | PASS | PASS | PASS | PASS |
 | stress after loadfault, 20 s | 1,170,499 packets, ERR=0 | 1,169,037 packets, ERR=0 | 11,671,811 packets, ERR=0 | 11,681,293 packets, ERR=0 |
 | `--stress 60` | 3,501,487 packets, 59.5M chars, ERR=0 (~0.99 MChar/s) | 3,499,282 packets, 59.5M chars, ERR=0 | 34,960,310 packets, 594M chars, ERR=0 (~9.9 MChar/s) | 34,962,124 packets, 594M chars, ERR=0 (~9.9 MChar/s) |
-| `ela_capture_demo.py` | PASS (D/S toggling, loopback holds) | - | - | - |
+| `ela_capture_demo.py` | PASS (D/S toggling, loopback holds) | PASS (2026-11-02) | PASS (2026-11-02) | PASS (2026-11-02) |
 
 ## FPGA resource usage and timing
 

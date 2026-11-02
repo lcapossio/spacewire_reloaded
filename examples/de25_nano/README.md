@@ -245,6 +245,12 @@ submodule) and Quartus Prime Pro 26.1 `quartus_stp`. The
 same results were obtained for the Verilog and VHDL builds; each run programs
 the board first, except the soak straight after the fault-under-load run.
 
+Re-verified on 2026-11-02 after the `syncdff` `d`/`q` port rename. Both builds
+were rebuilt with the same resources and timing as listed above.
+`host_loopback_test.py` (basic, `--inject`, `--timecode`, `--eep`,
+`--loadfault`, `--stress 60` with ERR=0) and `ela_capture_demo.py` were run on
+each build: 14/14 PASS.
+
 | Check | Result |
 | --- | --- |
 | LEDs after configuration | all four lit (bring-up, link, self-check done, passed) |
