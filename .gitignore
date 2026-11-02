@@ -20,3 +20,8 @@ clockInfo.txt
 dfx_runtime.txt
 vivado.jou
 vivado.log
+# Quartus build artifacts (examples/de25_nano/build.py -> quartus/)
+quartus/
+*.sof
+*.qws
+qdb/

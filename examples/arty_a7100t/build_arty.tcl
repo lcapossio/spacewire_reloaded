@@ -88,7 +88,8 @@ if {[info exists ::env(SPW_TXDIVCNT)]} {
 
 if {$fast} {
     # Fast build: MMCM rxclk/txclk in their own domains -> exercises the
-    # gray-coded rxclk->clk and clk<->txclk crossings and constraints/spw_cdc.xdc.
+    # gray-coded rxclk->clk and clk<->txclk crossings and the core CDC
+    # constraints (constraints/spw_cdc_rx.xdc and spw_cdc_tx.xdc).
     set fastdiv 0
     if {$div_override ne ""} { set fastdiv $div_override }
     read_xdc $example_dir/arty_a7100t_fast.xdc
@@ -96,13 +97,10 @@ if {$fast} {
         -generic RXIMPL=1 -generic TXIMPL=1 -generic RXCHUNK=2 -generic USE_MMCM=1 \
         -generic LINK_TXDIVCNT=$fastdiv {*}$extgen
 
-    # Post-synthesis: the MMCM generated clocks and syncdff cells now exist.
-    set rxc [get_clocks -of_objects [get_pins -hierarchical -filter {NAME =~ *u_mmcm/CLKOUT0}]]
-    set txc [get_clocks -of_objects [get_pins -hierarchical -filter {NAME =~ *u_mmcm/CLKOUT1}]]
-    set_clock_groups -asynchronous \
-        -group [get_clocks board_clk] -group $rxc -group $txc \
-        -group [get_clocks tck_bscan]
-    read_xdc $root/constraints/spw_cdc.xdc
+    # Post-synthesis: the MMCM generated clocks and core CDC cells now exist.
+    read_xdc $example_dir/arty_a7100t_fast_cdc.xdc
+    read_xdc $root/constraints/spw_cdc_rx.xdc
+    read_xdc $root/constraints/spw_cdc_tx.xdc
     set bit  $example_dir/spw_arty_a7100t_top_fast${extsfx}${divsfx}.bit
     set trpt $example_dir/timing_verilog_fast${extsfx}${divsfx}.rpt
     set urpt $example_dir/utilization_verilog_fast${extsfx}${divsfx}.rpt

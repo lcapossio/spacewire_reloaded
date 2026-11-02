@@ -23,6 +23,16 @@ def _fork_check_supported():
 
 FORK_CHECK_SUPPORTED = _fork_check_supported()
 
+# External-line error gate. The held-m_axis cases (axi_top_external_line_
+# m_axis_held_*) build an AxiStreamSink with check_protocol, which only the
+# cocotbext-axi fork accepts. cocotb runs every test matched by a
+# COCOTB_TEST_FILTER even if it is marked skip, so without the fork those
+# cases are excluded from the filter here instead of relying on the skip.
+EXTERNAL_LINE_FILTER = (
+    "axi_top_external_line_.*" if FORK_CHECK_SUPPORTED
+    else "axi_top_external_line_(?!m_axis_held_).*"
+)
+
 
 VERILOG_RTL = [
     "rtl/verilog/syncdff.v",
@@ -274,7 +284,7 @@ def test_spw_axi_top_external_line_errors_verilog():
         build_dir=ROOT / "build" / "cocotb" / "spw_axi_top_external_line_errors_verilog",
         parameters=verilog_external_line_parameters(),
         extra_env=sweep_env(SPWLINK_SWEEP_CASES[0]),
-        test_filter="axi_top_external_line_.*",
+        test_filter=EXTERNAL_LINE_FILTER,
     )
 
 
@@ -415,5 +425,5 @@ def test_spw_axi_top_external_line_errors_vhdl():
         build_dir=ROOT / "build" / "cocotb" / "spw_axi_top_external_line_errors_vhdl",
         generics=vhdl_external_line_generics(),
         extra_env=sweep_env(SPWLINK_SWEEP_CASES[0]),
-        test_filter="axi_top_external_line_.*",
+        test_filter=EXTERNAL_LINE_FILTER,
     )

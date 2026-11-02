@@ -59,6 +59,18 @@
  * desyncs the RX checker and is counted in ERRCOUNT. With CTRL[3] (selftest_loop)
  * set the run never ends: packets stream back-to-back at link rate indefinitely
  * and TXCOUNT/RXCOUNT/ERRCOUNT/PKTCOUNT accumulate, for multi-minute soak tests.
+ *
+ * Every run starts with an RX flush: received characters are discarded until
+ * the line has been quiet for FLUSH_IDLE clocks (16 character times at the run
+ * rate), and only then does transmission start. Stopping a run (selftest_en=0)
+ * mid-stream leaves characters queued in the core FIFOs and on the wire; without
+ * the flush the restarted checker would see that stale tail and stay out of
+ * PRBS step for the whole run. The checker stays off for the whole flush. A
+ * START pulse or a soft reset aborts the current run (soft reset re-runs an
+ * unfinished one after bring-up), and the next run flushes again before it
+ * checks anything. A link drop during the flush returns to idle, and a fresh
+ * run starts once the link is back. A link drop after the flush does not
+ * abort the run: it carries on, and the checker judges whatever arrives.
  */
 
 `timescale 1ns/1ps
@@ -444,7 +456,7 @@ module spw_loopback_axi #(
     // ====================================================================
     localparam [2:0]
         T_IDLE = 3'd0,
-        T_WAIT = 3'd1,
+        T_FLUSH = 3'd1,
         T_DATA = 3'd2,
         T_EOP  = 3'd3,
         T_DONE = 3'd4;
@@ -456,6 +468,9 @@ module spw_loopback_axi #(
     reg [7:0]  rx_lfsr;       // PRBS checker (RX)
     reg [31:0] tx_pkt;        // packets transmitted this run (free-running in loop mode)
     reg [31:0] rx_pkt;        // packets received this run (EOP count)
+    // RX flush before each run: 16 character times (10 bits each) of silence.
+    localparam integer FLUSH_IDLE = 16 * 10 * (LINK_TXDIVCNT + 1);
+    reg [15:0] flush_cnt;
     localparam [7:0] PRBS_SEED = 8'hFF;
     localparam [7:0] PRBS_POLY = 8'hB8; // maximal 8-bit Galois LFSR (period 255)
 
@@ -473,6 +488,7 @@ module spw_loopback_axi #(
             tx_idx          <= 8'd0;
             exp_idx         <= 8'd0;
             check_active    <= 1'b0;
+            flush_cnt       <= 16'd0;
             tx_lfsr         <= PRBS_SEED;
             rx_lfsr         <= PRBS_SEED;
             tx_pkt          <= 32'd0;
@@ -500,8 +516,14 @@ module spw_loopback_axi #(
                 s_axis_tready <= 1'b1; // checker always accepts RX
                 case (tstate)
                     T_IDLE: begin
-                        m_axis_tvalid <= 1'b0;
-                        if (bringup_done_r && link_running &&
+                        // AXI-Stream: never retract a beat. The last beat of
+                        // an aborted run (TVALID high, not yet accepted) is
+                        // held until the core takes it; the flush of the next
+                        // run then discards it on the RX side.
+                        if (!m_axis_tvalid || m_axis_tready)
+                            m_axis_tvalid <= 1'b0;
+                        if ((!m_axis_tvalid || m_axis_tready) &&
+                            bringup_done_r && link_running &&
                             (selftest_start_pulse || !selftest_done_r)) begin
                             tx_idx          <= 8'd0;
                             exp_idx         <= 8'd0;
@@ -515,8 +537,26 @@ module spw_loopback_axi #(
                             selftest_busy_r <= 1'b1;
                             selftest_done_r <= 1'b0;
                             selftest_pass_r <= 1'b0;
-                            check_active    <= 1'b1;
-                            tstate          <= T_DATA;
+                            check_active    <= 1'b0;
+                            flush_cnt       <= 16'd0;
+                            tstate          <= T_FLUSH;
+                        end
+                    end
+                    T_FLUSH: begin
+                        // Discard stale RX (s_axis_tready=1, checker inactive)
+                        // until the line has been quiet for FLUSH_IDLE clocks.
+                        m_axis_tvalid <= 1'b0;
+                        if (!(bringup_done_r && link_running)) begin
+                            // Link lost (or bring-up re-running): wait in
+                            // T_IDLE and start a fresh run when it is back.
+                            tstate <= T_IDLE;
+                        end else if (s_axis_tvalid) begin
+                            flush_cnt <= 16'd0;
+                        end else if (flush_cnt == FLUSH_IDLE - 1) begin
+                            check_active <= 1'b1;
+                            tstate       <= T_DATA;
+                        end else begin
+                            flush_cnt <= flush_cnt + 1'b1;
                         end
                     end
                     T_DATA: begin
@@ -597,13 +637,24 @@ module spw_loopback_axi #(
                         exp_idx <= exp_idx + 1'b1;
                     end
                 end
-                if (selftest_start_pulse) begin
-                    selftest_done_r <= 1'b0;
+                // START and soft reset abort the current run: the checker stops
+                // at once (stale characters must never reach a reseeded PRBS)
+                // and the next run starts from T_IDLE with a fresh flush.
+                // Soft reset keeps selftest_done_r, so an unfinished run is
+                // re-run after bring-up and a finished one-shot stays done.
+                if (selftest_start_pulse || soft_reset_pulse) begin
                     tstate          <= T_IDLE;
+                    check_active    <= 1'b0;
                 end
+                if (selftest_start_pulse)
+                    selftest_done_r <= 1'b0;
             end else begin
                 // ---- Host data-mover ----
                 selftest_busy_r <= 1'b0;
+                // A stopped run never resumes mid-sequence: re-enabling the
+                // self-check always starts a fresh (flushed) run from T_IDLE.
+                tstate          <= T_IDLE;
+                check_active    <= 1'b0;
                 // TX: drain the one-beat holding register into AXIS.
                 if (dm_tx_pending && !m_axis_tvalid) begin
                     m_axis_tdata  <= dm_tx_beat[7:0];

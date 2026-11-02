@@ -19,7 +19,13 @@ that:
   (sends `SELFTEST_PKTS` back-to-back packets, each `SELFTEST_LEN` PRBS bytes +
   EOP, with the PRBS sequence continuing across packets so any dropped or
   duplicated char is caught, and checks the looped-back stream at link rate) or a
-  host **data-mover** (push/pop N-Chars from the host);
+  host **data-mover** (push/pop N-Chars from the host). Each self-check run
+  first flushes the receive side (discarding characters until the line has been
+  quiet for 16 character times), so a run restarted after stopping mid-stream
+  never checks the stale tail of the previous run. A START pulse or a soft reset
+  aborts the current run on the spot (the checker stops at once, and a TX beat
+  already offered to the core is held until accepted, per AXI-Stream); an
+  unfinished run interrupted by soft reset is re-run after bring-up;
 - presents an **AXI4 slave** register file to the fpgacapZero EJTAG-AXI bridge so
   the host drives and observes everything over JTAG.
 
@@ -101,6 +107,7 @@ Then build a bitstream (Vivado must be on `PATH`, or pass `--vivado`):
 python examples/arty_a7100t/build.py --hdl verilog            # spw_arty_a7100t_top.bit
 python examples/arty_a7100t/build.py --hdl vhdl               # spw_arty_a7100t_top_vhdl.bit
 python examples/arty_a7100t/build.py --hdl verilog --fast     # spw_arty_a7100t_top_fast.bit
+python examples/arty_a7100t/build.py --hdl vhdl --fast        # spw_arty_a7100t_top_vhdl_fast.bit
 python examples/arty_a7100t/build.py --hdl verilog --external # spw_arty_a7100t_top_ext.bit (jumper JA1->JA7, JA4->JA10)
 ```
 
@@ -114,8 +121,12 @@ gray-coded `rxclk -> clk` head-pointer crossing and the `clk <-> txclk` transmit
 crossings are real clock-domain crossings on hardware, and it sets
 `LINK_TXDIVCNT=0` for a **100 Mbit/s** SpaceWire link (`txclk/(LINK_TXDIVCNT+1)`,
 oversampled 3x by the 150 MHz DDR fast RX). The fast build applies
-[`constraints/spw_cdc.xdc`](../../constraints/spw_cdc.xdc) (post-synthesis, plus
-asynchronous clock groups), so it is also what exercises that constraint file.
+[`constraints/spw_cdc_rx.xdc`](../../constraints/spw_cdc_rx.xdc) and
+[`constraints/spw_cdc_tx.xdc`](../../constraints/spw_cdc_tx.xdc) post-synthesis,
+so it is also what exercises those constraint files. `rxclk` and `txclk` are MMCM
+outputs of the board clock and stay in its clock group
+([`arty_a7100t_fast_cdc.xdc`](arty_a7100t_fast_cdc.xdc)); only the JTAG TCK is
+an asynchronous group. Separate groups would override the core's CDC bounds.
 Both builds meet timing on `xc7a100tcsg324-1` and pass the same fcapz host
 loopback test on the board.
 
@@ -123,8 +134,12 @@ loopback test on the board.
 
 A cocotb functional sim drives the engine's AXI4 slave exactly like fcapz does
 and checks, for both languages: the self-check and host data-mover loopbacks,
-continuous (loop) mode, error injection + recovery, TimeCode loopback, EEP
-round-trip, and fault-under-load recovery (7 tests):
+continuous (loop) mode, stopping and restarting loop mode mid-stream, START
+while a loop run is active, soft reset mid-run, error injection + recovery
+(with a clean self-check after each recovery), TimeCode loopback, EEP
+round-trip, and fault-under-load recovery (10 tests). A monitor runs alongside
+every test and fails it if the engine ever retracts or changes a TX AXI-Stream
+beat before the core accepts it:
 
 ```sh
 python -m pytest examples/arty_a7100t/tb/test_spw_loopback_runner.py            # Verilog (Icarus)
@@ -133,7 +148,9 @@ SPW_RUN_VHDL_COCOTB=1 python -m pytest examples/arty_a7100t/tb/test_spw_loopback
 
 ## Verify on hardware (fcapz)
 
-Program the board and run the host check (hw_server backend programs on connect):
+Install the fcapz host from the submodule, so it matches the debug-core RTL in
+the bitstream (`python -m pip install ./examples/arty_a7100t/fpgacapZero`), then
+program the board and run the host check (hw_server backend programs on connect):
 
 ```sh
 hw_server -d
@@ -160,7 +177,8 @@ loopback, and confirms the SpaceWire link-error detection and recovery. It
 freezes the outgoing D/S (a disconnect, which sets the sticky `errdisc` and drops
 the link), then inverts the outgoing `D` (a Data-line corruption, which raises a
 link error), and after each fault clears `ERRINJ` and pulses soft_reset to bring
-the link back up with the sticky error bits cleared. On external loopback the
+the link back up with the sticky error bits cleared, then checks that the
+interrupted self-check re-runs with traffic flowing and `ERRCOUNT` 0. On external loopback the
 injected fault genuinely leaves the FPGA on the wire:
 
 ```sh
@@ -222,24 +240,50 @@ fcapz --backend hw_server --port 3121 --tap xc7a100t \
 fcapz --backend hw_server --port 3121 --tap xc7a100t axi-read 0x14   # -> 0x53505752 "SPWR"
 ```
 
+### Hardware results
+
+Arty A7-100T, internal loopback, fpgacapZero `44d1059` (cores and host from the
+submodule) over hw_server (Vivado
+2025.2): generic builds 2026-10-12, fast builds 2026-10-22 (rebuilt with the
+split receive/transmit CDC constraint files). Every run reprograms the bitstream first, except the
+"stress after loadfault" row, which soaks the still-running design straight
+after `--loadfault` (stop/restart of the self-check mid-stream).
+
+Re-verified on 2026-11-02 after the `syncdff` `d`/`q` port rename. All four
+builds were rebuilt with the same resources and timing as the table below.
+`host_loopback_test.py` (basic, `--inject`, `--timecode`, `--eep`,
+`--loadfault`, `--stress 60` with ERR=0) and `ela_capture_demo.py` were run on
+each build: 28/28 PASS.
+
+| Check | generic Verilog (10 Mbit/s) | generic VHDL (10 Mbit/s) | fast Verilog (100 Mbit/s) | fast VHDL (100 Mbit/s) |
+| --- | --- | --- | --- | --- |
+| basic (IDs, self-check, data mover, EIO) | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 |
+| `--inject` (self-check re-runs with ERR=0 after each recovery), `--timecode`, `--eep`, `--loadfault` | PASS | PASS | PASS | PASS |
+| stress after loadfault, 20 s | 1,170,499 packets, ERR=0 | 1,169,037 packets, ERR=0 | 11,671,811 packets, ERR=0 | 11,681,293 packets, ERR=0 |
+| `--stress 60` | 3,501,487 packets, 59.5M chars, ERR=0 (~0.99 MChar/s) | 3,499,282 packets, 59.5M chars, ERR=0 | 34,960,310 packets, 594M chars, ERR=0 (~9.9 MChar/s) | 34,962,124 packets, 594M chars, ERR=0 (~9.9 MChar/s) |
+| `ela_capture_demo.py` | PASS (D/S toggling, loopback holds) | PASS (2026-11-02) | PASS (2026-11-02) | PASS (2026-11-02) |
+
 ## FPGA resource usage and timing
 
 Whole design (SpaceWire core + loopback engine + fpgacapZero debug cores: 2 ELA,
 2 EIO, EJTAG-AXI bridge) on `xc7a100tcsg324-1` (Artix-7), Vivado 2025.2, default
-implementation strategy, Verilog build. Post-route, all timing constraints met.
+implementation strategy. Post-route, all timing constraints met.
 
-| Build | Clocks | LUTs | Registers | BRAM | BUFG | MMCM | Setup WNS | Link rate |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| generic | clk 100 MHz | 4000 (6.3%) | 4699 (3.7%) | 4 | 3 | 0 | +1.848 ns | ~10 Mbit/s |
-| fast | clk 100, rxclk 150, txclk 100 MHz | 4268 (6.7%) | 5060 (4.0%) | 4 | 6 | 1 | +1.927 ns | 100 Mbit/s |
+| Build | HDL | Clocks | LUTs | Registers | BRAM | BUFG | MMCM | Setup WNS | Link rate |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| generic | Verilog | clk 100 MHz | 3883 (6.1%) | 4826 (3.8%) | 4 | 3 | 0 | +2.145 ns | ~10 Mbit/s |
+| fast | Verilog | clk 100, rxclk 150, txclk 100 MHz | 3893 (6.1%) | 4996 (3.9%) | 4 | 6 | 1 | +1.036 ns | 100 Mbit/s |
+| generic | VHDL | clk 100 MHz | 4246 (6.7%) | 4858 (3.8%) | 4 | 3 | 0 | +1.990 ns | ~10 Mbit/s |
+| fast | VHDL | clk 100, rxclk 150, txclk 100 MHz | 4309 (6.8%) | 5027 (4.0%) | 4 | 6 | 1 | +1.525 ns | 100 Mbit/s |
 
 The fast build adds the MMCM (1) and extra clock buffers for the separate
-`rxclk`/`txclk` domains and the oversampling fast RX/TX front ends. IOB usage is
-11 in both. The VHDL builds target the same device/clocks with comparable numbers
-(fast VHDL setup WNS +2.055 ns). SpaceWire run bit rate is `txclk/(LINK_TXDIVCNT+1)`
+`rxclk`/`txclk` domains and the oversampling fast RX/TX front ends. Its setup
+WNS includes the `clk`/`rxclk`/`txclk` crossings, bounded to 5 ns by
+`constraints/spw_cdc_rx.xdc` and `spw_cdc_tx.xdc` (all builds: 0 critical warnings). IOB usage is
+11 in all builds. SpaceWire run bit rate is `txclk/(LINK_TXDIVCNT+1)`
 (generic `LINK_TXDIVCNT=9` -> ~10 Mbit/s; fast `LINK_TXDIVCNT=0` -> 100 Mbit/s).
 
 ## Author and License
 
-Author: Leonardo Capossio - bard0 design - hello@bard0.com.
+Author: Leonardo Capossio - [bard0 design](https://www.bard0.com) - hello@bard0.com.
 License: LGPL-2.1-or-later (example), fpgacapZero submodule is Apache-2.0.
