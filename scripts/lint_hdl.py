@@ -43,6 +43,7 @@ VERILOG_SOURCES = [
     "rtl/verilog/spw_axi_top.v",
     "examples/arty_a7100t/rtl/spw_loopback_axi.v",
     "examples/arty_a7100t/tb/spw_loopback_sim_top.v",
+    "tests/cocotb/spw_axi_top/spw_axi_top_loop_tb.v",
 ]
 
 VERILOG_RTL_SOURCES = [

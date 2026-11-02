@@ -126,6 +126,15 @@ with the SpaceWire Light package. If not, see <http://www.gnu.org/licenses/>.
 
 ## Version History
 
+### 2026-11-02 - Author: Leonardo Capossio
+
+* Renamed the `syncdff` data ports `di`/`do` to `d`/`q` in both the VHDL and
+  the Verilog, because `do` is a SystemVerilog keyword. Port order is
+  unchanged. Code that instantiates `syncdff` directly must update its named
+  port connections (`di` -> `d`, `do` -> `q`), and any copied VHDL `syncdff`
+  component declaration must be updated to match `spwpkg`.
+* Verilog lint now also parses the sources in SystemVerilog mode.
+
 ### 2026-05-08 - Author: Leonardo Capossio
 
 * Completed the Verilog 2001 translation of the standalone, non-GRLIB
