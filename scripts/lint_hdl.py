@@ -213,6 +213,11 @@ def lint_verilog(*, skip_yosys: bool) -> None:
     print("== Verilog 2001 lint ==")
     run(["iverilog", "-g2001", "-Wall", "-tnull", *VERILOG_SOURCES])
 
+    # The sources are Verilog 2001, but users may read them into SystemVerilog
+    # flows; this catches identifiers that are SystemVerilog keywords (e.g. "do").
+    print("\n== SystemVerilog keyword-compatibility parse ==")
+    run(["iverilog", "-g2012", "-Wall", "-tnull", *VERILOG_SOURCES])
+
     if skip_yosys:
         print("\nSKIP: Verilog structural multi-driver checks (--skip-yosys)")
     else:

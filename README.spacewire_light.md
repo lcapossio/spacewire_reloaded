@@ -92,7 +92,8 @@ python scripts/lint_hdl.py --vhdl
 ```
 
 Verilog lint requires Icarus Verilog and Yosys; VHDL lint requires GHDL. The
-Yosys phase runs structural `check -assert` passes to catch issues such as
+Verilog sources are also parsed in SystemVerilog mode (`iverilog -g2012`) to
+catch identifiers that are SystemVerilog keywords. The Yosys phase runs structural `check -assert` passes to catch issues such as
 multi-driven Verilog nets. Use `--skip-yosys` only on machines without Yosys;
 CI runs the full Verilog check.
 

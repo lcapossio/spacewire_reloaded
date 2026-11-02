@@ -58,6 +58,11 @@ The VHDL top-level generics `sysfreq` and `txclkfreq` are real-valued.
 The Verilog 2001 translation uses precomputed integer parameters instead:
 `RESET_TIME`, `DISCONNECT_TIME` and `DEFAULT_DIVCNT`.
 
+The sources must also parse as SystemVerilog, so no identifier may be a
+SystemVerilog keyword. The original `syncdff` data ports `di`/`do` are
+therefore named `d`/`q` (in the VHDL too, to keep the two in parity);
+`scripts/lint_hdl.py` enforces this with an `iverilog -g2012` parse.
+
 License
 -------
 

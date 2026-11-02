@@ -396,8 +396,8 @@ package spwpkg is
         port (
             clk:        in  std_logic;          -- clock (destination domain)
             rst:        in  std_logic;          -- asynchronous reset, active-high
-            di:         in  std_logic;          -- input data
-            do:         out std_logic );        -- output data
+            d:          in  std_logic;          -- input data
+            q:          out std_logic );        -- output data
     end component syncdff;
 
 end package;

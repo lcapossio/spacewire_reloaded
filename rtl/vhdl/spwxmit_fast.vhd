@@ -329,23 +329,23 @@ begin
 
     -- Reset synchronizer for txclk domain.
     synctx_rst: syncdff
-        port map ( clk => txclk, rst => rst, di => '1',         do => synctx.rstn );
+        port map ( clk => txclk, rst => rst, d => '1',         q => synctx.rstn );
 
     -- Synchronize signals from system clock domain to txclk domain.
     synctx_sysflip0: syncdff
-        port map ( clk => txclk, rst => rst, di => r.sysflip0,  do => synctx.sysflip0 );
+        port map ( clk => txclk, rst => rst, d => r.sysflip0,  q => synctx.sysflip0 );
     synctx_sysflip1: syncdff
-        port map ( clk => txclk, rst => rst, di => r.sysflip1,  do => synctx.sysflip1 );
+        port map ( clk => txclk, rst => rst, d => r.sysflip1,  q => synctx.sysflip1 );
     synctx_txen: syncdff
-        port map ( clk => txclk, rst => rst, di => r.txenreg,   do => synctx.txen );
+        port map ( clk => txclk, rst => rst, d => r.txenreg,   q => synctx.txen );
     synctx_txdivsafe: syncdff
-        port map ( clk => txclk, rst => rst, di => r.txdivsafe, do => synctx.txdivsafe );
+        port map ( clk => txclk, rst => rst, d => r.txdivsafe, q => synctx.txdivsafe );
 
     -- Synchronize signals from txclk domain to system clock domain.
     syncsys_txflip0: syncdff
-        port map ( clk => clk,   rst => rst, di => rtx.txflip0, do => syncsys.txflip0 );
+        port map ( clk => clk,   rst => rst, d => rtx.txflip0, q => syncsys.txflip0 );
     syncsys_txflip1: syncdff
-        port map ( clk => clk,   rst => rst, di => rtx.txflip1, do => syncsys.txflip1 );
+        port map ( clk => clk,   rst => rst, d => rtx.txflip1, q => syncsys.txflip1 );
 
     -- Drive SpaceWire output signals
     spw_do      <= s_spwdo;
