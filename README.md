@@ -28,7 +28,7 @@ SpaceWire Reloaded builds directly on SpaceWire Light by Joris van Rantwijk (200
 What this project changes and adds:
 
 - **Clean licensing.** The GRLIB-dependent AMBA integration and the LEON3/SPWAMBA examples, which pulled in GPL GRLIB source, are removed. A new AXI integration layer is written from scratch for this repository, so the whole tree is LGPL-2.1-or-later with clear provenance.
-- **A Verilog core.** The VHDL RTL has a parity-checked Verilog-2001 translation; both languages are maintained together and cross-checked.
+- **A Verilog core.** The VHDL RTL has a parity-checked Verilog-2001 translation; both languages are maintained together and cross-checked. The Verilog is also kept free of SystemVerilog keywords, so it can be read into SystemVerilog flows; for that reason the `syncdff` data ports are `d`/`q` in both languages instead of upstream's `di`/`do` (`do` is a SystemVerilog keyword).
 - **AXI interfaces.** An AXI4-Lite register block and an AXI4-Stream N-Char data path (dedicated TX and RX bridges) replace the removed AMBA layer.
 - **Vendor-neutral integration.** RAM, FIFO, reset, and clock-domain-crossing primitives are wrapped behind portable modules with multi-vendor synthesis attributes and constraint templates.
 - **A modern flow.** A Python build/lint/test entry point, GitHub Actions CI, a dual-language cocotb regression, Verilator coverage, synthesis resource reports, and an on-hardware FPGA example.
@@ -39,7 +39,7 @@ The original upstream README is preserved verbatim as [README.spacewire_light.md
 
 - **SpaceWire link layer** — DS encode/decode, the link start/connect/run state machine, disconnect detection, credit-based flow control, N-Chars, and TimeCodes.
 - **Selectable front ends** — a generic system-clock receiver and transmitter, plus an oversampled "fast" receiver and a dedicated-clock "fast" transmitter, chosen per instance.
-- **Dual language** — VHDL and Verilog-2001, kept in parity with trace, waveform, and manifest cross-checks in CI.
+- **Dual language** — VHDL and Verilog-2001, kept in parity with trace, waveform, and manifest cross-checks in CI. The Verilog also parses as SystemVerilog (checked by lint).
 - **AXI4-Lite register block** — link control, live status, sticky errors, interrupts, and TimeCode TX/RX in a 64-byte aperture.
 - **AXI4-Stream N-Char path** — TX (sink) and RX (source) bridges that preserve SpaceWire's explicit EOP/EEP characters instead of hiding them in the data byte.
 - **Bus-neutral internal split** — the SpaceWire core keeps a simple control/data interface, so further wrappers (AHB/APB, an AXI-DMA data path) can be added without touching the core.

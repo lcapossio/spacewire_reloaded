@@ -53,6 +53,7 @@ VERILOG_SOURCES = [
     "examples/de25_nano/tb/de25_reset_release_sim.v",
     "examples/de25_nano/tb/de25_debug_sim.v",
     "examples/de25_nano/rtl/spw_de25_nano_top.v",
+    "tests/cocotb/spw_axi_top/spw_axi_top_loop_tb.v",
 ]
 
 VERILOG_RTL_SOURCES = [
@@ -240,6 +241,11 @@ def lint_verilog(*, skip_yosys: bool) -> None:
 
     print("== Verilog 2001 lint ==")
     run(["iverilog", "-g2001", "-Wall", "-tnull", *VERILOG_SOURCES])
+
+    # The sources are Verilog 2001, but users may read them into SystemVerilog
+    # flows; this catches identifiers that are SystemVerilog keywords (e.g. "do").
+    print("\n== SystemVerilog keyword-compatibility parse ==")
+    run(["iverilog", "-g2012", "-Wall", "-tnull", *VERILOG_SOURCES])
 
     if skip_yosys:
         print("\nSKIP: Verilog structural multi-driver checks (--skip-yosys)")

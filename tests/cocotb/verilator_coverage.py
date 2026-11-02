@@ -118,7 +118,6 @@ for _cfg in CONFIGS:
         sys.path.insert(0, _d)
 
 BUILD_ARGS = [
-    "--language", "1364-2005",  # plain Verilog-2005: syncdff's 'do' port is legal
     "--coverage",               # line + toggle + user coverage
     "-Wno-fatal",               # keep third-party-RTL lint warnings non-fatal
     "-Wno-WIDTH", "-Wno-UNOPTFLAT", "-Wno-CASEINCOMPLETE",
