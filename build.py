@@ -228,7 +228,7 @@ def main() -> int:
     vivado_parser.add_argument("--hdl", choices=("verilog", "vhdl"), default="verilog",
                                help="HDL flavor of the example to build")
     vivado_parser.add_argument("--fast", action="store_true",
-                               help="fast multi-clock 100 Mbit/s build (exercises the CDC + spw_cdc.xdc)")
+                               help="fast multi-clock 100 Mbit/s build (exercises the CDC + spw_cdc_rx/tx.xdc)")
     vivado_parser.add_argument("--vivado", default=None, help="path to the vivado executable")
     vivado_parser.add_argument("--dry-run", action="store_true", help="check flow wiring without building")
     vivado_parser.set_defaults(func=cmd_vivado)

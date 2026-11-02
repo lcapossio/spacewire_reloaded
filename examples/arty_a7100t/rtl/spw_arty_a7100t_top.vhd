@@ -19,7 +19,7 @@ entity spw_arty_a7100t_top is
         LOOPBACK_INTERNAL: integer := 1;
         -- RX/TX front-end: 0 = generic (single clock), 1 = fast. The fast build
         -- uses an MMCM so rxclk/txclk run in their own domains, exercising the
-        -- gray-coded rxclk->clk and clk<->txclk crossings (and spw_cdc.xdc) on HW.
+        -- gray-coded rxclk->clk and clk<->txclk crossings (and spw_cdc_rx/tx.xdc) on HW.
         RXIMPL:   integer := 0;
         TXIMPL:   integer := 0;
         RXCHUNK:  integer := 1;

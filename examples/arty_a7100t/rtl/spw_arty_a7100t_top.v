@@ -31,7 +31,7 @@ module spw_arty_a7100t_top #(
     // RX/TX front-end implementation: 0 = generic (single clock), 1 = fast.
     // The fast build uses an MMCM to run rxclk/txclk in their own domains so
     // the gray-coded rxclk->clk crossing and clk<->txclk crossings (and the
-    // constraints/spw_cdc.xdc) are actually exercised on hardware.
+    // constraints/spw_cdc_rx/tx.xdc) are actually exercised on hardware.
     parameter integer RXIMPL   = 0,
     parameter integer TXIMPL   = 0,
     parameter integer RXCHUNK  = 1,

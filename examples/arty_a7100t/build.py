@@ -54,7 +54,7 @@ def main() -> int:
     parser.add_argument("--log-dir", default=str(HERE / "vivado_logs"))
     parser.add_argument("--fast", action="store_true",
                         help="fast build: MMCM rxclk/txclk + fast RX/TX impl, applies "
-                             "constraints/spw_cdc.xdc (exercises the CDC on hardware)")
+                             "constraints/spw_cdc_rx/tx.xdc (exercises the CDC on hardware)")
     parser.add_argument("--external", action="store_true",
                         help="external Pmod loopback (LOOPBACK_INTERNAL=0): D/S leave the "
                              "FPGA on Pmod JA; jumper JA1->JA7 and JA4->JA10")

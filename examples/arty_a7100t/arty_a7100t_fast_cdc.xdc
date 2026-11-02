@@ -4,11 +4,13 @@
 #
 # Post-synthesis constraints for the FAST Arty A7-100T build, read by
 # build_arty.tcl / build_arty_vhdl.tcl after synth_design (the MMCM-generated
-# clocks do not exist before), followed by constraints/spw_cdc.xdc.
+# clocks do not exist before), followed by constraints/spw_cdc_rx.xdc and
+# spw_cdc_tx.xdc.
 #
 # rxclk (150 MHz) and txclk (100 MHz) are MMCM outputs of board_clk, so they
 # stay in the board_clk group: the SpaceWire crossings between them are bounded
-# by constraints/spw_cdc.xdc, which asynchronous clock groups would override.
+# by constraints/spw_cdc_rx.xdc and spw_cdc_tx.xdc, which asynchronous clock
+# groups would override.
 # Only the JTAG TCK is asynchronous; the fpgacapZero cores synchronize it.
 set_clock_groups -asynchronous \
     -group [get_clocks -include_generated_clocks board_clk] \

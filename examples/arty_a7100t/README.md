@@ -121,8 +121,9 @@ gray-coded `rxclk -> clk` head-pointer crossing and the `clk <-> txclk` transmit
 crossings are real clock-domain crossings on hardware, and it sets
 `LINK_TXDIVCNT=0` for a **100 Mbit/s** SpaceWire link (`txclk/(LINK_TXDIVCNT+1)`,
 oversampled 3x by the 150 MHz DDR fast RX). The fast build applies
-[`constraints/spw_cdc.xdc`](../../constraints/spw_cdc.xdc) post-synthesis, so it
-is also what exercises that constraint file. `rxclk` and `txclk` are MMCM
+[`constraints/spw_cdc_rx.xdc`](../../constraints/spw_cdc_rx.xdc) and
+[`constraints/spw_cdc_tx.xdc`](../../constraints/spw_cdc_tx.xdc) post-synthesis,
+so it is also what exercises those constraint files. `rxclk` and `txclk` are MMCM
 outputs of the board clock and stay in its clock group
 ([`arty_a7100t_fast_cdc.xdc`](arty_a7100t_fast_cdc.xdc)); only the JTAG TCK is
 an asynchronous group. Separate groups would override the core's CDC bounds.
@@ -243,8 +244,8 @@ fcapz --backend hw_server --port 3121 --tap xc7a100t axi-read 0x14   # -> 0x5350
 
 Arty A7-100T, internal loopback, fpgacapZero `44d1059` (cores and host from the
 submodule) over hw_server (Vivado
-2025.2): generic builds 2026-10-12, fast builds 2026-10-13 (rebuilt with the
-corrected CDC constraints). Every run reprograms the bitstream first, except the
+2025.2): generic builds 2026-10-12, fast builds 2026-10-22 (rebuilt with the
+split receive/transmit CDC constraint files). Every run reprograms the bitstream first, except the
 "stress after loadfault" row, which soaks the still-running design straight
 after `--loadfault` (stop/restart of the self-check mid-stream).
 
@@ -252,8 +253,8 @@ after `--loadfault` (stop/restart of the self-check mid-stream).
 | --- | --- | --- | --- | --- |
 | basic (IDs, self-check, data mover, EIO) | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 | PASS, TX=RX=68, ERR=0 |
 | `--inject` (self-check re-runs with ERR=0 after each recovery), `--timecode`, `--eep`, `--loadfault` | PASS | PASS | PASS | PASS |
-| stress after loadfault, 20 s | 1,170,499 packets, ERR=0 | 1,169,037 packets, ERR=0 | 11,686,557 packets, ERR=0 | 11,700,068 packets, ERR=0 |
-| `--stress 60` | 3,501,487 packets, 59.5M chars, ERR=0 (~0.99 MChar/s) | 3,499,282 packets, 59.5M chars, ERR=0 | 35,008,639 packets, 595M chars, ERR=0 (~9.9 MChar/s) | 34,986,200 packets, 595M chars, ERR=0 (~9.9 MChar/s) |
+| stress after loadfault, 20 s | 1,170,499 packets, ERR=0 | 1,169,037 packets, ERR=0 | 11,671,811 packets, ERR=0 | 11,681,293 packets, ERR=0 |
+| `--stress 60` | 3,501,487 packets, 59.5M chars, ERR=0 (~0.99 MChar/s) | 3,499,282 packets, 59.5M chars, ERR=0 | 34,960,310 packets, 594M chars, ERR=0 (~9.9 MChar/s) | 34,962,124 packets, 594M chars, ERR=0 (~9.9 MChar/s) |
 | `ela_capture_demo.py` | PASS (D/S toggling, loopback holds) | - | - | - |
 
 ## FPGA resource usage and timing
@@ -272,7 +273,7 @@ implementation strategy. Post-route, all timing constraints met.
 The fast build adds the MMCM (1) and extra clock buffers for the separate
 `rxclk`/`txclk` domains and the oversampling fast RX/TX front ends. Its setup
 WNS includes the `clk`/`rxclk`/`txclk` crossings, bounded to 5 ns by
-`constraints/spw_cdc.xdc` (all builds: 0 critical warnings). IOB usage is
+`constraints/spw_cdc_rx.xdc` and `spw_cdc_tx.xdc` (all builds: 0 critical warnings). IOB usage is
 11 in all builds. SpaceWire run bit rate is `txclk/(LINK_TXDIVCNT+1)`
 (generic `LINK_TXDIVCNT=9` -> ~10 Mbit/s; fast `LINK_TXDIVCNT=0` -> 100 Mbit/s).
 

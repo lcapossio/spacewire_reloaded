@@ -83,7 +83,8 @@ if {$fast} {
         -generic LINK_TXDIVCNT=$fastdiv {*}$extgen
 
     read_xdc $example_dir/arty_a7100t_fast_cdc.xdc
-    read_xdc $root/constraints/spw_cdc.xdc
+    read_xdc $root/constraints/spw_cdc_rx.xdc
+    read_xdc $root/constraints/spw_cdc_tx.xdc
     set bit  $example_dir/spw_arty_a7100t_top_vhdl_fast${extsfx}${divsfx}.bit
     set trpt $example_dir/timing_vhdl_fast${extsfx}${divsfx}.rpt
     set urpt $example_dir/utilization_vhdl_fast${extsfx}${divsfx}.rpt
