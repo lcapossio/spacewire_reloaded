@@ -30,19 +30,27 @@ set spw_clk_tx  txclk
 # the FASTEST clock in a crossing (clk or txclk).
 set spw_cdc_max_delay_ns 5.000
 
+# Instance scope: a glob for the hierarchy above xmit_fast_inst, ending
+# in "*" (default "*": every fast transmitter in the design). With several
+# cores where some have txclk wired to clk, set spw_cdc_tx_scope (e.g.
+# "*u_spw_a/*") before this file, and read the file once per core whose
+# txclk is a separate clock. The variable persists for files read later.
+# See constraints/README.md.
+set spw_cdc_tx_scope [expr {[info exists spw_cdc_tx_scope] ? $spw_cdc_tx_scope : "*"}]
+
 # txclk -> clk: transmit handshake flip syncdff inputs (1).
 set_max_delay -datapath_only -from [get_clocks $spw_clk_tx] \
-    -to [get_cells -hierarchical {*xmit_fast_inst/syncsys_*/syncdff_ff1*}] $spw_cdc_max_delay_ns
+    -to [get_cells -hierarchical "${spw_cdc_tx_scope}xmit_fast_inst/syncsys_*/syncdff_ff1*"] $spw_cdc_max_delay_ns
 
 # clk -> txclk: syncdff inputs and the asynchronous clears of the txclk
 # synchronizers (1, 2), and the token and divider registers (4).
 set_max_delay -datapath_only -from [get_clocks $spw_clk_sys] \
-    -to [get_cells -hierarchical {*xmit_fast_inst/synctx_*/syncdff_ff*}] $spw_cdc_max_delay_ns
+    -to [get_cells -hierarchical "${spw_cdc_tx_scope}xmit_fast_inst/synctx_*/syncdff_ff*"] $spw_cdc_max_delay_ns
 set_max_delay -datapath_only -from [get_clocks $spw_clk_sys] \
-    -to [get_cells -hierarchical {*xmit_fast_inst/*b_token*}] $spw_cdc_max_delay_ns
+    -to [get_cells -hierarchical "${spw_cdc_tx_scope}xmit_fast_inst/*b_token*"] $spw_cdc_max_delay_ns
 set_max_delay -datapath_only -from [get_clocks $spw_clk_sys] \
-    -to [get_cells -hierarchical {*xmit_fast_inst/*txclkdiv*}] $spw_cdc_max_delay_ns
+    -to [get_cells -hierarchical "${spw_cdc_tx_scope}xmit_fast_inst/*txclkdiv*"] $spw_cdc_max_delay_ns
 set_max_delay -datapath_only -from [get_clocks $spw_clk_sys] \
-    -to [get_cells -hierarchical {*xmit_fast_inst/*txdivnorm_tx*}] $spw_cdc_max_delay_ns
+    -to [get_cells -hierarchical "${spw_cdc_tx_scope}xmit_fast_inst/*txdivnorm_tx*"] $spw_cdc_max_delay_ns
 set_max_delay -datapath_only -from [get_clocks $spw_clk_sys] \
-    -to [get_cells -hierarchical {*xmit_fast_inst/rtx*txdivnorm*}] $spw_cdc_max_delay_ns
+    -to [get_cells -hierarchical "${spw_cdc_tx_scope}xmit_fast_inst/rtx*txdivnorm*"] $spw_cdc_max_delay_ns

@@ -26,17 +26,25 @@
 # of the FASTEST clock in a crossing (clk or txclk).
 set spw_cdc_max_delay_ns 5.000
 
+# Instance scope: a glob for the hierarchy above xmit_fast_inst, ending
+# in "*" (default "*": every fast transmitter in the design). With several
+# cores where some have txclk wired to clk, set spw_cdc_tx_scope (e.g.
+# "*u_spw_a|*") before this file, and read the file once per core whose
+# txclk is a separate clock. The variable persists for files read later.
+# See constraints/README.md.
+set spw_cdc_tx_scope [expr {[info exists spw_cdc_tx_scope] ? $spw_cdc_tx_scope : "*"}]
+
 # 1. syncdff synchronizers clk <-> txclk (the D pin only for the false path, so
 #    a same-domain clear stays timed).
-set spw_tx_sync_ff1 [get_registers -nowarn {*xmit_fast_inst|*|syncdff_ff1}]
-set spw_tx_sync_d   [get_pins -nowarn -compatibility_mode {*xmit_fast_inst|*|syncdff_ff1|d}]
+set spw_tx_sync_ff1 [get_registers -nowarn "${spw_cdc_tx_scope}xmit_fast_inst|*|syncdff_ff1"]
+set spw_tx_sync_d   [get_pins -nowarn -compatibility_mode "${spw_cdc_tx_scope}xmit_fast_inst|*|syncdff_ff1|d"]
 # 2. Asynchronous clears of the txclk reset synchronizers (clk -> txclk).
-set spw_tx_sync_rst [get_pins -nowarn -compatibility_mode {*xmit_fast_inst|synctx_*|syncdff_ff*|clrn}]
+set spw_tx_sync_rst [get_pins -nowarn -compatibility_mode "${spw_cdc_tx_scope}xmit_fast_inst|synctx_*|syncdff_ff*|clrn"]
 # 4. Transmit token and divider registers, clk -> txclk.
 set spw_tx_src [get_registers -nowarn \
-    {*xmit_fast_inst|*token0* *xmit_fast_inst|*token1* *xmit_fast_inst|*txdivreg* *xmit_fast_inst|txdivnorm *xmit_fast_inst|r.txdivnorm}]
+    "${spw_cdc_tx_scope}xmit_fast_inst|*token0* ${spw_cdc_tx_scope}xmit_fast_inst|*token1* ${spw_cdc_tx_scope}xmit_fast_inst|*txdivreg* ${spw_cdc_tx_scope}xmit_fast_inst|txdivnorm ${spw_cdc_tx_scope}xmit_fast_inst|r.txdivnorm"]
 set spw_tx_dst [get_registers -nowarn \
-    {*xmit_fast_inst|*b_token* *xmit_fast_inst|*txclkdiv* *xmit_fast_inst|txdivnorm_tx *xmit_fast_inst|rtx.txdivnorm}]
+    "${spw_cdc_tx_scope}xmit_fast_inst|*b_token* ${spw_cdc_tx_scope}xmit_fast_inst|*txclkdiv* ${spw_cdc_tx_scope}xmit_fast_inst|txdivnorm_tx ${spw_cdc_tx_scope}xmit_fast_inst|rtx.txdivnorm"]
 
 if {[get_collection_size $spw_tx_sync_ff1] > 0} {
     set_false_path -to $spw_tx_sync_d

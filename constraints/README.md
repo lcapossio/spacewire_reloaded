@@ -52,6 +52,31 @@ give them an input delay. If your design drives them from internal logic (for
 example an internal loopback from the transmitter), add the sampler
 `set_false_path` from the receive file yourself.
 
+### Several cores in one design
+
+By default each file applies to every fast front end of its side in the
+design. That is right when every such core has that clock separate from
+`clk`. If some cores use the fast front end with `rxclk` (or `txclk`) wired to
+`clk`, limit the file to the cores whose clock is separate; otherwise it
+relaxes the same-clock paths of the others, as above. Each file has a scope
+variable, `spw_cdc_rx_scope` or `spw_cdc_tx_scope`: a glob for the hierarchy
+above the front-end instance, ending in `*`, with the tool's hierarchy
+separator. The default is `*`.
+
+| Tool flow | Limit to cores `u_spw_a` and `u_spw_c` |
+|-----------|----------------------------------------|
+| Vivado, non-project | `read_xdc -cells {u_spw_a u_spw_c} spw_cdc_rx.xdc` |
+| Vivado, project | `set_property SCOPED_TO_CELLS {u_spw_a u_spw_c} [get_files spw_cdc_rx.xdc]` |
+| Vivado, either | set `spw_cdc_rx_scope` to `*u_spw_a/*`, read the file, then repeat with `*u_spw_c/*` |
+| Quartus | set `spw_cdc_rx_scope` to `*u_spw_a\|*`, read the file, then repeat with `*u_spw_c\|*` |
+| Radiant | as Quartus, with `/` as the separator |
+
+Set the variable before the file is read: in Tcl before `read_xdc`/`read_sdc`,
+or in a small constraint file of your own ordered before it (one line,
+`set spw_cdc_rx_scope "*u_spw_a/*"`). The value persists for the constraint
+files read after it, so set it again before each file that needs a different
+scope.
+
 Verification status (fast configuration, Verilog and VHDL netlists):
 
 - Vivado files: verified in the Arty A7-100T fast build
@@ -69,8 +94,18 @@ Verification status (fast configuration, Verilog and VHDL netlists):
   read through the mux) and meets them, and no constraint is ignored. With
   `rxclk` wired to `clk` and only the transmit file, the `clk` same-domain path
   counts match a clocks-only analysis of the same netlist.
+- Instance scope: checked with three fast cores in one design, `u_a` and `u_c`
+  on separate `rxclk`/`txclk`, `u_b` with both wired to `clk`. In Vivado
+  2025.2 (post-synthesis), the default scope puts exceptions on all 26 of
+  `u_b`'s crossing endpoints. Every method in the table above (`-cells`,
+  `SCOPED_TO_CELLS`, and the variable set from Tcl or from a constraint file,
+  read once per core) covers all 26 on `u_a` and `u_c` and none on `u_b`. In
+  Quartus Pro 26.1 (post-fit), the default scope cuts 74 of `u_b`'s
+  same-clock paths. With the variable read once for `u_a` and once for `u_c`,
+  `u_b`'s path counts match a clocks-only analysis, no crossing path is left,
+  and no constraint is ignored.
 - Radiant files: written in the Radiant constraint syntax but **not yet run
-  through Radiant** here. Check `sta_report_constraints` for constraints that
+  through Radiant** here. That includes the scope variable. Check `sta_report_constraints` for constraints that
   matched nothing, and confirm the cell-name patterns against your synthesized
   netlist.
 

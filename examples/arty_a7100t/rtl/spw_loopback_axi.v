@@ -65,10 +65,12 @@
  * rate), and only then does transmission start. Stopping a run (selftest_en=0)
  * mid-stream leaves characters queued in the core FIFOs and on the wire; without
  * the flush the restarted checker would see that stale tail and stay out of
- * PRBS step for the whole run. The checker stays off for the whole flush: a
- * START pulse, a soft reset, or the link dropping all abort the current run
- * (soft reset re-runs an unfinished one after bring-up), and the next run
- * flushes again before it checks anything.
+ * PRBS step for the whole run. The checker stays off for the whole flush. A
+ * START pulse or a soft reset aborts the current run (soft reset re-runs an
+ * unfinished one after bring-up), and the next run flushes again before it
+ * checks anything. A link drop during the flush returns to idle, and a fresh
+ * run starts once the link is back. A link drop after the flush does not
+ * abort the run: it carries on, and the checker judges whatever arrives.
  */
 
 `timescale 1ns/1ps

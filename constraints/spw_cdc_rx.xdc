@@ -36,26 +36,35 @@
 # the FASTEST clock in a crossing (clk or rxclk).
 set spw_cdc_max_delay_ns 5.000
 
+# Instance scope: a glob for the hierarchy above recvfront_fast_inst, ending
+# in "*" (default "*": every fast receiver in the design). With several
+# cores where some have rxclk wired to clk, limit this file to the cores whose
+# rxclk is a separate clock: read_xdc -cells {u_spw_a u_spw_c} (in a project:
+# the SCOPED_TO_CELLS file property), or set spw_cdc_rx_scope (e.g.
+# "*u_spw_a/*") before this file. The variable persists for files read
+# later. See constraints/README.md.
+set spw_cdc_rx_scope [expr {[info exists spw_cdc_rx_scope] ? $spw_cdc_rx_scope : "*"}]
+
 # 1. syncdff data inputs, rxclk -> clk.
 set_max_delay -datapath_only -from [all_clocks] \
-    -to [get_pins -of_objects [get_cells -hierarchical -filter {NAME =~ *recvfront_fast_inst/syncsys_*/syncdff_ff1*}] \
+    -to [get_pins -of_objects [get_cells -hierarchical -filter "NAME =~ ${spw_cdc_rx_scope}recvfront_fast_inst/syncsys_*/syncdff_ff1*"] \
              -filter {REF_PIN_NAME == D}] \
     $spw_cdc_max_delay_ns
 
 # 2. Asynchronous reset of the rxclk reset synchronizer, clk -> rxclk.
 set_max_delay -datapath_only -from [all_clocks] \
-    -to [get_pins -of_objects [get_cells -hierarchical -filter {NAME =~ *recvfront_fast_inst/syncrx_reset/syncdff_ff*}] \
+    -to [get_pins -of_objects [get_cells -hierarchical -filter "NAME =~ ${spw_cdc_rx_scope}recvfront_fast_inst/syncrx_reset/syncdff_ff*"] \
              -filter {REF_PIN_NAME == CLR || REF_PIN_NAME == PRE}] \
     $spw_cdc_max_delay_ns
 
 # 3. Receive buffer LUTRAM (rxclk write) -> registered read (clk).
 set_max_delay -datapath_only \
-    -from [get_cells -hierarchical -filter {NAME =~ *recvfront_fast_inst/bufmem/*mem_reg* && IS_PRIMITIVE}] \
-    -to [get_cells -hierarchical -filter {NAME =~ *recvfront_fast_inst/bufmem/rdata*}] \
+    -from [get_cells -hierarchical -filter "NAME =~ ${spw_cdc_rx_scope}recvfront_fast_inst/bufmem/*mem_reg* && IS_PRIMITIVE"] \
+    -to [get_cells -hierarchical -filter "NAME =~ ${spw_cdc_rx_scope}recvfront_fast_inst/bufmem/rdata*"] \
     $spw_cdc_max_delay_ns
 
 # 5. D/S line samplers: the line input is asynchronous to rxclk.
 set_false_path \
     -to [get_pins -of_objects [get_cells -hierarchical -filter \
-             {NAME =~ *recvfront_fast_inst/*a_di1_reg || NAME =~ *recvfront_fast_inst/*a_si1_reg || NAME =~ *recvfront_fast_inst/*a_di2_reg || NAME =~ *recvfront_fast_inst/*a_si2_reg}] \
+             "NAME =~ ${spw_cdc_rx_scope}recvfront_fast_inst/*a_di1_reg || NAME =~ ${spw_cdc_rx_scope}recvfront_fast_inst/*a_si1_reg || NAME =~ ${spw_cdc_rx_scope}recvfront_fast_inst/*a_di2_reg || NAME =~ ${spw_cdc_rx_scope}recvfront_fast_inst/*a_si2_reg"] \
              -filter {REF_PIN_NAME == D}]

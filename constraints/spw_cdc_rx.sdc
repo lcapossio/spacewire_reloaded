@@ -27,25 +27,33 @@
 # of the FASTEST clock in a crossing (clk or rxclk).
 set spw_cdc_max_delay_ns 5.000
 
+# Instance scope: a glob for the hierarchy above recvfront_fast_inst, ending
+# in "*" (default "*": every fast receiver in the design). With several
+# cores where some have rxclk wired to clk, set spw_cdc_rx_scope (e.g.
+# "*u_spw_a|*") before this file, and read the file once per core whose
+# rxclk is a separate clock. The variable persists for files read later.
+# See constraints/README.md.
+set spw_cdc_rx_scope [expr {[info exists spw_cdc_rx_scope] ? $spw_cdc_rx_scope : "*"}]
+
 # 1. syncdff synchronizers rxclk -> clk (the D pin only for the false path, so
 #    a same-domain clear stays timed).
-set spw_rx_sync_ff1 [get_registers -nowarn {*recvfront_fast_inst|syncsys_*|syncdff_ff1}]
-set spw_rx_sync_d   [get_pins -nowarn -compatibility_mode {*recvfront_fast_inst|syncsys_*|syncdff_ff1|d}]
+set spw_rx_sync_ff1 [get_registers -nowarn "${spw_cdc_rx_scope}recvfront_fast_inst|syncsys_*|syncdff_ff1"]
+set spw_rx_sync_d   [get_pins -nowarn -compatibility_mode "${spw_cdc_rx_scope}recvfront_fast_inst|syncsys_*|syncdff_ff1|d"]
 # 2. Asynchronous clear of the rxclk reset synchronizer (clk -> rxclk).
-set spw_rx_sync_rst [get_pins -nowarn -compatibility_mode {*recvfront_fast_inst|syncrx_reset|syncdff_ff*|clrn}]
+set spw_rx_sync_rst [get_pins -nowarn -compatibility_mode "${spw_cdc_rx_scope}recvfront_fast_inst|syncrx_reset|syncdff_ff*|clrn"]
 # 3. Receive buffer (rxclk write) -> registered read through the mux (clk).
-set spw_rxbuf_mem [get_registers -nowarn {*recvfront_fast_inst|bufmem|*mem*}]
-set spw_rxbuf_rd  [get_registers -nowarn {*recvfront_fast_inst|bufmem|rdata*}]
+set spw_rxbuf_mem [get_registers -nowarn "${spw_cdc_rx_scope}recvfront_fast_inst|bufmem|*mem*"]
+set spw_rxbuf_rd  [get_registers -nowarn "${spw_cdc_rx_scope}recvfront_fast_inst|bufmem|rdata*"]
 # 5. D/S line samplers (asynchronous input by definition).
 set spw_line_smp [get_registers -nowarn \
-    {*recvfront_fast_inst|*a_di1 *recvfront_fast_inst|*a_si1 *recvfront_fast_inst|*a_di2 *recvfront_fast_inst|*a_si2}]
+    "${spw_cdc_rx_scope}recvfront_fast_inst|*a_di1 ${spw_cdc_rx_scope}recvfront_fast_inst|*a_si1 ${spw_cdc_rx_scope}recvfront_fast_inst|*a_di2 ${spw_cdc_rx_scope}recvfront_fast_inst|*a_si2"]
 
 if {[get_collection_size $spw_rx_sync_ff1] > 0} {
     set_false_path -to $spw_rx_sync_d
     set_data_delay -from [all_registers] -to $spw_rx_sync_d $spw_cdc_max_delay_ns
     # Gray-coded head pointer: keep its bits within one capture period.
-    set_max_skew -from [get_registers -nowarn {*recvfront_fast_inst|*headptr*}] \
-        -to [get_registers -nowarn {*recvfront_fast_inst|syncsys_headptr*|syncdff_ff1}] $spw_cdc_max_delay_ns
+    set_max_skew -from [get_registers -nowarn "${spw_cdc_rx_scope}recvfront_fast_inst|*headptr*"] \
+        -to [get_registers -nowarn "${spw_cdc_rx_scope}recvfront_fast_inst|syncsys_headptr*|syncdff_ff1"] $spw_cdc_max_delay_ns
 } else {
     post_message -type warning "spw_cdc_rx.sdc found no receive syncdff_ff1 registers; check instance names."
 }
