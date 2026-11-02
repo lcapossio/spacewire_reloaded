@@ -163,13 +163,13 @@ module spwrecvfront_fast #(
     // The head pointer is gray-coded before crossing so the system clock
     // domain can never sample an illegal intermediate value while the pointer
     // increments (gray code changes only one bit per +1 step).
-    syncdff syncrx_reset (.clk(rxclk), .rst(rxdis), .di(1'b1), .do(syncrx_rstn));
-    syncdff syncsys_headptr0 (.clk(clk), .rst(rxdis), .di(headptr_gray[0]), .do(syncsys_headptr_gray[0]));
-    syncdff syncsys_headptr1 (.clk(clk), .rst(rxdis), .di(headptr_gray[1]), .do(syncsys_headptr_gray[1]));
-    syncdff syncsys_headptr2 (.clk(clk), .rst(rxdis), .di(headptr_gray[2]), .do(syncsys_headptr_gray[2]));
-    syncdff syncsys_bitcnt0 (.clk(clk), .rst(rxdis), .di(bitcnt[0]), .do(syncsys_bitcnt[0]));
-    syncdff syncsys_bitcnt1 (.clk(clk), .rst(rxdis), .di(bitcnt[1]), .do(syncsys_bitcnt[1]));
-    syncdff syncsys_bitcnt2 (.clk(clk), .rst(rxdis), .di(bitcnt[2]), .do(syncsys_bitcnt[2]));
+    syncdff syncrx_reset (.clk(rxclk), .rst(rxdis), .d(1'b1), .q(syncrx_rstn));
+    syncdff syncsys_headptr0 (.clk(clk), .rst(rxdis), .d(headptr_gray[0]), .q(syncsys_headptr_gray[0]));
+    syncdff syncsys_headptr1 (.clk(clk), .rst(rxdis), .d(headptr_gray[1]), .q(syncsys_headptr_gray[1]));
+    syncdff syncsys_headptr2 (.clk(clk), .rst(rxdis), .d(headptr_gray[2]), .q(syncsys_headptr_gray[2]));
+    syncdff syncsys_bitcnt0 (.clk(clk), .rst(rxdis), .d(bitcnt[0]), .q(syncsys_bitcnt[0]));
+    syncdff syncsys_bitcnt1 (.clk(clk), .rst(rxdis), .d(bitcnt[1]), .q(syncsys_bitcnt[1]));
+    syncdff syncsys_bitcnt2 (.clk(clk), .rst(rxdis), .d(bitcnt[2]), .q(syncsys_bitcnt[2]));
 
     always @(posedge rxclk) begin
         a_di1 <= spw_di;

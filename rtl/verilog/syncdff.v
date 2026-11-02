@@ -6,6 +6,8 @@
  * Double flip-flop synchronizer.
  *
  * Verilog 2001 translation of rtl/vhdl/syncdff.vhd from SpaceWire Light.
+ * The data ports are named d/q (not the original di/do) because "do" is a
+ * SystemVerilog keyword; this keeps the core usable from SystemVerilog flows.
  */
 
 `timescale 1ns / 1ps
@@ -13,8 +15,8 @@
 module syncdff (
     input  wire clk,
     input  wire rst,
-    input  wire di,
-    output wire do
+    input  wire d,
+    output wire q
 );
 
     // Vendor-neutral clock-domain-crossing synchronizer attributes (see
@@ -27,14 +29,14 @@ module syncdff (
     (* ASYNC_REG = "TRUE", syn_preserve = 1, syn_srlstyle = "registers", preserve = 1, keep = "true" *)
     reg syncdff_ff2;
 
-    assign do = syncdff_ff2;
+    assign q = syncdff_ff2;
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             syncdff_ff1 <= 1'b0;
             syncdff_ff2 <= 1'b0;
         end else begin
-            syncdff_ff1 <= di;
+            syncdff_ff1 <= d;
             syncdff_ff2 <= syncdff_ff1;
         end
     end

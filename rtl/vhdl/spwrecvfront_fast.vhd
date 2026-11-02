@@ -217,24 +217,24 @@ begin
 
     -- Synchronize reset signal for rxclk domain.
     syncrx_reset: syncdff
-        port map ( clk => rxclk, rst => r.rxdis, di => '1', do => syncrx_rstn );
+        port map ( clk => rxclk, rst => r.rxdis, d => '1', q => syncrx_rstn );
 
     -- Synchronize signals from rxclk domain to system clock domain.
     -- The head pointer is gray-coded before crossing so the system clock
     -- domain can never sample an illegal intermediate value while the pointer
     -- increments (gray code changes only one bit per +1 step).
     syncsys_headptr0: syncdff
-        port map ( clk => clk, rst => r.rxdis, di => rrx.headptr_gray(0), do => syncsys.headptr_gray(0) );
+        port map ( clk => clk, rst => r.rxdis, d => rrx.headptr_gray(0), q => syncsys.headptr_gray(0) );
     syncsys_headptr1: syncdff
-        port map ( clk => clk, rst => r.rxdis, di => rrx.headptr_gray(1), do => syncsys.headptr_gray(1) );
+        port map ( clk => clk, rst => r.rxdis, d => rrx.headptr_gray(1), q => syncsys.headptr_gray(1) );
     syncsys_headptr2: syncdff
-        port map ( clk => clk, rst => r.rxdis, di => rrx.headptr_gray(2), do => syncsys.headptr_gray(2) );
+        port map ( clk => clk, rst => r.rxdis, d => rrx.headptr_gray(2), q => syncsys.headptr_gray(2) );
     syncsys_bitcnt0: syncdff
-        port map ( clk => clk, rst => r.rxdis, di => rrx.bitcnt(0), do => syncsys.bitcnt(0) );
+        port map ( clk => clk, rst => r.rxdis, d => rrx.bitcnt(0), q => syncsys.bitcnt(0) );
     syncsys_bitcnt1: syncdff
-        port map ( clk => clk, rst => r.rxdis, di => rrx.bitcnt(1), do => syncsys.bitcnt(1) );
+        port map ( clk => clk, rst => r.rxdis, d => rrx.bitcnt(1), q => syncsys.bitcnt(1) );
     syncsys_bitcnt2: syncdff
-        port map ( clk => clk, rst => r.rxdis, di => rrx.bitcnt(2), do => syncsys.bitcnt(2) );
+        port map ( clk => clk, rst => r.rxdis, d => rrx.bitcnt(2), q => syncsys.bitcnt(2) );
 
     -- sample inputs on rising edge of rxclk
     process (rxclk) is

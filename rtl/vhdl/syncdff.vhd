@@ -9,6 +9,9 @@
 --  the data path from syncdff_ff1 to syncdff_ff2 to ensure that
 --  meta-stability of ff1 is resolved before ff2 captures the signal.
 --
+--  The data ports are named d/q (originally di/do) to match the Verilog
+--  translation, where "do" is a reserved SystemVerilog keyword.
+--
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -18,8 +21,8 @@ entity syncdff is
     port (
         clk:        in  std_logic;          -- clock (destination domain)
         rst:        in  std_logic;          -- asynchronous reset, active-high
-        di:         in  std_logic;          -- input data
-        do:         out std_logic           -- output data
+        d:          in  std_logic;          -- input data
+        q:          out std_logic           -- output data
     );
 
 end entity syncdff;
@@ -65,7 +68,7 @@ architecture syncdff_arch of syncdff is
 begin
 
     -- second flip-flop drives the output signal
-    do <= syncdff_ff2;
+    q <= syncdff_ff2;
 
     process (clk, rst) is
     begin
@@ -75,7 +78,7 @@ begin
             syncdff_ff2 <= '0';
         elsif rising_edge(clk) then
             -- data synchronization
-            syncdff_ff1 <= di;
+            syncdff_ff1 <= d;
             syncdff_ff2 <= syncdff_ff1;
         end if;
     end process;

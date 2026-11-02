@@ -92,7 +92,8 @@ python scripts/lint_hdl.py --vhdl
 ```
 
 Verilog lint requires Icarus Verilog and Yosys; VHDL lint requires GHDL. The
-Yosys phase runs structural `check -assert` passes to catch issues such as
+Verilog sources are also parsed in SystemVerilog mode (`iverilog -g2012`) to
+catch identifiers that are SystemVerilog keywords. The Yosys phase runs structural `check -assert` passes to catch issues such as
 multi-driven Verilog nets. Use `--skip-yosys` only on machines without Yosys;
 CI runs the full Verilog check.
 
@@ -124,6 +125,15 @@ You should have received a copy of the GNU Lesser General Public License along
 with the SpaceWire Light package. If not, see <http://www.gnu.org/licenses/>.
 
 ## Version History
+
+### 2026-11-02 - Author: Leonardo Capossio
+
+* Renamed the `syncdff` data ports `di`/`do` to `d`/`q` in both the VHDL and
+  the Verilog, because `do` is a SystemVerilog keyword. Port order is
+  unchanged. Code that instantiates `syncdff` directly must update its named
+  port connections (`di` -> `d`, `do` -> `q`), and any copied VHDL `syncdff`
+  component declaration must be updated to match `spwpkg`.
+* Verilog lint now also parses the sources in SystemVerilog mode.
 
 ### 2026-05-08 - Author: Leonardo Capossio
 

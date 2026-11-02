@@ -174,25 +174,25 @@ module spwxmit_fast (
     reg [7:0] token_char;
 
     syncdff synctx_rst (
-        .clk(txclk), .rst(rst), .di(1'b1), .do(synctx_rstn)
+        .clk(txclk), .rst(rst), .d(1'b1), .q(synctx_rstn)
     );
     syncdff synctx_sysflip0_sync (
-        .clk(txclk), .rst(rst), .di(sysflip0), .do(synctx_sysflip0)
+        .clk(txclk), .rst(rst), .d(sysflip0), .q(synctx_sysflip0)
     );
     syncdff synctx_sysflip1_sync (
-        .clk(txclk), .rst(rst), .di(sysflip1), .do(synctx_sysflip1)
+        .clk(txclk), .rst(rst), .d(sysflip1), .q(synctx_sysflip1)
     );
     syncdff synctx_txen_sync (
-        .clk(txclk), .rst(rst), .di(txenreg), .do(synctx_txen)
+        .clk(txclk), .rst(rst), .d(txenreg), .q(synctx_txen)
     );
     syncdff synctx_txdivsafe_sync (
-        .clk(txclk), .rst(rst), .di(txdivsafe), .do(synctx_txdivsafe)
+        .clk(txclk), .rst(rst), .d(txdivsafe), .q(synctx_txdivsafe)
     );
     syncdff syncsys_txflip0_sync (
-        .clk(clk), .rst(rst), .di(txflip0), .do(syncsys_txflip0)
+        .clk(clk), .rst(rst), .d(txflip0), .q(syncsys_txflip0)
     );
     syncdff syncsys_txflip1_sync (
-        .clk(clk), .rst(rst), .di(txflip1), .do(syncsys_txflip1)
+        .clk(clk), .rst(rst), .d(txflip1), .q(syncsys_txflip1)
     );
 
     assign spw_do = spwdo_r;
