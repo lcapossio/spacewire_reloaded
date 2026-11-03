@@ -155,8 +155,10 @@ running yet). Release is synchronous: reset is held for 16 clocks after the
 synchronized release, then follows the synchronized `SWITCH1`. The same signal,
 inverted, drives the fcapz core manager's `hub_por` input in `mpfs_debug`: it
 resets the manager and every slot through fcapz's own reset synchronizers, so
-the manager's reset epochs and owner token start from known values after every
-reprogram. `FABRIC_POR_N` is the design's only power-on reset source. On
+after every reprogram the owner token is cleared and each reset epoch's parity
+(bit 0, the live reset level) is valid. The epochs' upper bits (release
+counters) still have no reset and start from whatever the registers held; the
+host only compares them for changes. `FABRIC_POR_N` is the design's only power-on reset source. On
 another vendor, the wrapper becomes
 that device's configuration-done or power-on reset (on the DE25-Nano, the
 Agilex reset release IP). In simulation `tb/mpfs_por_sim.v` / `.vhd` hold
@@ -331,8 +333,8 @@ epochs and owner token in registers with no reset, relying on initial values
 that PolarFire does not load. When an epoch came up odd the host refused the
 ELA demo (`ManagerResetError: ... MGR_SLOT_EPOCH ... is odd`), and because
 PolarFire registers survive a reprogram, the Verilog build was refused in
-every attempt. fpgacapZero main `552958c` derives the epoch parity from the
-live reset level and adds the `hub_por` input, which `mpfs_debug` drives from
+every attempt. fpgacapZero main `552958c` makes the epoch parity the live
+reset level and adds the `hub_por` input (which clears the owner token), which `mpfs_debug` drives from
 `FABRIC_POR_N`; with it the ELA demo passes on both builds and the host's
 "carries owner token" warning is gone.
 
