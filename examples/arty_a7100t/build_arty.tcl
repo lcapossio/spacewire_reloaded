@@ -38,6 +38,9 @@ read_verilog [list \
     $fcapz/rtl/trig_compare.v \
     $fcapz/rtl/fcapz_ela.v \
     $fcapz/rtl/fcapz_core_manager.v \
+    $fcapz/rtl/fcapz_debug_multi_core.v \
+    $fcapz/rtl/fcapz_hub_reset.v \
+    $fcapz/rtl/fcapz_debug_multi.v \
     $fcapz/rtl/fcapz_debug_multi_xilinx7.v \
     $fcapz/rtl/fcapz_ela_xilinx7.v \
     $fcapz/rtl/jtag_reg_iface.v \
