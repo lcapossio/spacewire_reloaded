@@ -63,6 +63,14 @@ SystemVerilog keyword. The original `syncdff` data ports `di`/`do` are
 therefore named `d`/`q` (in the VHDL too, to keep the two in parity);
 `scripts/lint_hdl.py` enforces this with an `iverilog -g2012` parse.
 
+Verilog has no constrained parameter types, so `spwstream` checks its
+parameters itself, matching the VHDL generic ranges: an out-of-range value
+stops simulation at time 0 with a message. The generic receiver
+(`RXIMPL=0`) takes one bit per clock and requires `RXCHUNK=1`, as in the
+VHDL; any other `RXCHUNK` with it fails elaboration in simulation and
+synthesis alike (Vivado, Quartus and Yosys report the missing module
+`spwstream_error_rxchunk_must_be_1_with_generic_receiver`).
+
 License
 -------
 
