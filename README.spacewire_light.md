@@ -126,6 +126,15 @@ with the SpaceWire Light package. If not, see <http://www.gnu.org/licenses/>.
 
 ## Version History
 
+### 2026-11-03 - Author: Leonardo Capossio
+
+* The Verilog `spwstream` now rejects `RXIMPL=0` (generic receiver) with
+  `RXCHUNK` 2 to 4, which the VHDL already rejects. It used to build, without
+  an error, a broken receiver whose decoder input bits above bit 0 were
+  undriven. The check fails elaboration, so synthesis stops too. Out-of-range
+  `RXCHUNK` values (below 1 or above 4) are still caught only by the existing
+  range check, which stops simulation but not every synthesis tool.
+
 ### 2026-11-02 - Author: Leonardo Capossio
 
 * Renamed the `syncdff` data ports `di`/`do` to `d`/`q` in both the VHDL and
