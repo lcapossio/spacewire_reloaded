@@ -206,35 +206,36 @@ Results measured on the board are listed under [Hardware results](#hardware-resu
 
 ## FPGA resource usage and timing
 
-Test conditions: Quartus Prime Pro 26.1, `A5EB013BB23BE4SR1` (DE25-Nano;
-device timing models Preliminary), full compile (synthesis, place and route,
-timing analysis), `clk` constrained at 50 MHz and JTAG TCK (`altera_reserved_tck`)
-at 24 MHz, generic RX/TX front ends (`RXIMPL = TXIMPL = 0`), worst case across all
-timing corners. The design is fully constrained (no unconstrained clocks or
-ports), and both builds have no critical warnings.
+Test conditions (2026-11-03, fpgacapZero v0.5.1 `3e91813`): Quartus Prime Pro
+26.1, `A5EB013BB23BE4SR1` (DE25-Nano; device timing models Preliminary), full
+compile (synthesis, place and route, timing analysis), `clk` constrained at 50
+MHz and JTAG TCK (`altera_reserved_tck`) at 24 MHz, generic RX/TX front ends
+(`RXIMPL = TXIMPL = 0`), worst case across all timing corners. The design is
+fully constrained (no unconstrained clocks or ports), and both builds have no
+critical warnings.
 
 Whole design (SpaceWire core, loopback engine, fcapz debug cores, reset logic):
 
 | Build | ALMs | Registers | RAM blocks (bits) | DSP / PLL | Pins | `clk` setup / hold slack | `clk` Fmax | TCK Fmax |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Verilog | 4,053 / 46,800 | 6,062 | 5 (86,016) | 0 / 0 | 7 | +13.391 / +0.055 ns | 151 MHz | 49.7 MHz |
-| VHDL | 4,026 / 46,800 | 6,082 | 5 (86,016) | 0 / 0 | 7 | +14.773 / +0.027 ns | 191 MHz | 49.7 MHz |
+| Verilog | 4,091 / 46,800 | 6,171 | 5 (86,016) | 0 / 0 | 7 | +13.875 / +0.043 ns | 163 MHz | 49.7 MHz |
+| VHDL | 4,036 / 46,800 | 6,160 | 5 (86,016) | 0 / 0 | 7 | +13.801 / +0.022 ns | 161 MHz | 49.7 MHz |
 
 By entity (Quartus fitter "ALMs needed"):
 
 | Entity | Verilog ALMs / registers / M20K | VHDL ALMs / registers / M20K |
 | --- | --- | --- |
-| SpaceWire core (`spw_axi_top`) | 217 / 294 / 2 | 223 / 294 / 2 |
-| Loopback engine (`spw_loopback_axi`) | 587 / 550 / 0 | 551 / 542 / 0 |
-| fcapz debug (`de25_debug`: ELA 16 x 1024, EIO, EJTAG-AXI) | 3,163 / 4,773 / 3 | 3,164 / 4,773 / 3 |
+| SpaceWire core (`spw_axi_top`) | 219 / 294 / 2 | 228 / 294 / 2 |
+| Loopback engine (`spw_loopback_axi`) | 588 / 550 / 0 | 541 / 542 / 0 |
+| fcapz debug (`de25_debug`: ELA 16 x 1024, EIO, EJTAG-AXI) | 3,195 / 4,839 / 3 | 3,181 / 4,839 / 3 |
 
 The fcapz debug cores are most of the design. The SpaceWire core itself is about
 230 ALMs plus its two RX/TX FIFO RAMs. Fmax is the Quartus restricted Fmax of the
 slowest corner. The critical `clk` path is the engine's register-read mux
 (`r_addr` -> `s_axi_rdata`); Quartus only works to the 50 MHz requirement, so
 Fmax moves between compiles (earlier compiles of nearly the same design reached
-154 to 233 MHz). The fcapz async-FIFO Gray-pointer crossings meet their 8 ns
-`set_max_skew` / `set_net_delay` bounds with at least 5.9 / 7.2 ns of slack. A full compile takes about 4.5 minutes on a 16-core machine
+151 to 233 MHz). The fcapz async-FIFO Gray-pointer crossings meet their 8 ns
+`set_max_skew` / `set_net_delay` bounds with at least 5.9 / 7.1 ns of slack. A full compile takes about 4.5 minutes on a 16-core machine
 (8 Quartus processors); synthesis alone takes about 1 minute.
 
 ## Hardware results
@@ -245,11 +246,13 @@ submodule) and Quartus Prime Pro 26.1 `quartus_stp`. The
 same results were obtained for the Verilog and VHDL builds; each run programs
 the board first, except the soak straight after the fault-under-load run.
 
-Re-verified on 2026-11-02 after the `syncdff` `d`/`q` port rename. Both builds
-were rebuilt with the same resources and timing as listed above.
-`host_loopback_test.py` (basic, `--inject`, `--timecode`, `--eep`,
-`--loadfault`, `--stress 60` with ERR=0) and `ela_capture_demo.py` were run on
-each build: 14/14 PASS.
+Re-verified on 2026-11-02 after the `syncdff` `d`/`q` port rename, with the same
+resources and timing as then. Re-verified again on 2026-11-03 with fpgacapZero
+v0.5.1 (`3e91813`, cores and host from the submodule), the build whose resources
+and timing are listed above. Both times `host_loopback_test.py` (basic,
+`--inject`, `--timecode`, `--eep`, `--loadfault`, `--stress 60` with 0
+PRBS/framing errors) and `ela_capture_demo.py` were run on each build: 14/14
+PASS. The table below is from 2026-10-12.
 
 | Check | Result |
 | --- | --- |
