@@ -226,7 +226,7 @@ See [`examples/de25_nano/README.md`](examples/de25_nano/README.md) for pins, bui
 
 - One `spw_axi_top` link in internal loopback, clocked from the board's 50 MHz `REF_CLK_50MHz`, running at 10 Mbit/s (generic RX/TX front ends).
 - After programming (or `SWITCH1`), the engine brings the link up and runs the fabric self-check on its own; `LED1`-`LED4` show bring-up, link running, self-check done and passed (all four lit = pass). No host is needed. PolarFire registers keep their contents across a JTAG reprogram and ignore initial values, so the reset comes from the device's fabric power-on reset rather than from fabric registers.
-- With a host, the Arty example's fpgacapZero checks run unchanged over the embedded FlashPro5 (fcapz `ftdi` backend, FTDI D2XX driver, no OpenOCD). All SpaceWire checks pass on both builds; the host refuses the ELA capture demo whenever an fpgacapZero core-manager counter, which PolarFire never initializes, holds an odd value (see the example README).
+- With a host, the Arty example's fpgacapZero checks run unchanged over the embedded FlashPro5 (fcapz `ftdi` backend, FTDI D2XX driver, no OpenOCD). All checks, including the ELA capture of the D/S lines, pass on both builds. The fpgacapZero core manager is reset from the same fabric power-on reset (its `hub_por` input), since PolarFire never initializes its registers.
 - A board-level cocotb test drives only the real pins (clock, switches, idle JTAG) and checks the LEDs, for Verilog (Icarus) and VHDL (GHDL); it is part of `python build.py test`.
 - `python build.py libero` runs the full Libero flow (synthesis, place-and-route, timing, programming data); `--program` also programs the board.
 
@@ -266,8 +266,8 @@ The complete Discovery Kit example (`spw_axi_top` in the generic configuration, 
 
 | Source | Whole design 4LUT | DFF | uSRAM / LSRAM | Math | `clk` setup / hold slack @ 50 MHz | `clk` Fmax | of which `spw_axi_top` (4LUT / DFF / LSRAM) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Verilog | 4,930 / 93,516 | 3,677 | 15 / 5 | 0 | +13.130 / +0.067 ns | 184 MHz | 552 / 337 / 2 |
-| VHDL | 4,897 / 93,516 | 3,669 | 15 / 5 | 0 | +13.104 / +0.069 ns | 204 MHz | 559 / 337 / 2 |
+| Verilog | 4,894 / 93,516 | 3,674 | 15 / 5 | 0 | +12.738 / +0.041 ns | 179 MHz | 552 / 337 / 2 |
+| VHDL | 4,879 / 93,516 | 3,666 | 15 / 5 | 0 | +12.840 / +0.067 ns | 198 MHz | 559 / 337 / 2 |
 
 As on Agilex 5, the fpgacapZero debug cores are most of the area (about 3,400 LUTs); the `clk` Fmax is set by the example engine's register-read mux. Per-block numbers and the TCK timing are in [`examples/mpfs_disco_kit/README.md`](examples/mpfs_disco_kit/README.md).
 

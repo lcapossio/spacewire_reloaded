@@ -150,10 +150,14 @@ design then runs from stale state.
 `rtl/microchip/mpfs_por.v` instantiates the device `INIT` block, whose
 `FABRIC_POR_N` is low while the fabric is initialized, including after every
 reprogram. In the top-level it clears the reset synchronizer and a 16-clock
-counter asynchronously (the only asynchronous reset in the design: no register
-state can be trusted, and `clk` may not be running yet). Release is
-synchronous: reset is held for 16 clocks after the synchronized release, then
-follows the synchronized `SWITCH1`. On another vendor, the wrapper becomes
+counter asynchronously (no register state can be trusted, and `clk` may not be
+running yet). Release is synchronous: reset is held for 16 clocks after the
+synchronized release, then follows the synchronized `SWITCH1`. The same signal,
+inverted, drives the fcapz core manager's `hub_por` input in `mpfs_debug`: it
+resets the manager and every slot through fcapz's own reset synchronizers, so
+the manager's reset epochs and owner token start from known values after every
+reprogram. These two are the only asynchronous resets in the design. On
+another vendor, the wrapper becomes
 that device's configuration-done or power-on reset (on the DE25-Nano, the
 Agilex reset release IP). In simulation `tb/mpfs_por_sim.v` / `.vhd` hold
 `fabric_por_n` low for the first 200 ns.
@@ -242,9 +246,6 @@ python examples/mpfs_disco_kit/host_loopback_test.py --stress 60  # back-to-back
 python examples/mpfs_disco_kit/ela_capture_demo.py                # ELA capture of the D/S lines -> VCD
 ```
 
-On PolarFire the host can refuse the ELA demo; see the
-[ELA demo limitation](#hardware-results).
-
 Probe map (the same in the Verilog and VHDL tops, and the same as on the
 DE25-Nano):
 
@@ -260,7 +261,7 @@ DE25-Nano):
 Full design (`spw_axi_top`, the `spw_loopback_axi` engine, the fcapz debug
 cores and the reset logic, with I/O), Libero SoC 2025.2 (Synplify Pro
 synthesis), `MPFS095T-1FCSG325E` (speed grade -1, core voltage 1.0 V, extended
-temperature range), built on 2026-11-03 with fpgacapZero v0.5.1 (`3e91813`).
+temperature range), built on 2026-11-04 with fpgacapZero main (`552958c`).
 `clk` is constrained at 50 MHz and JTAG TCK at 6 MHz; the design is fully
 constrained (the TCK/`clk` crossings are bounded, see below). Slack is the
 worst case over SmartTime's three multi-corner conditions (`slow_lv_ht`,
@@ -270,8 +271,8 @@ register-to-register setup slack (`1 / (20 ns - slack)`, slowest corner).
 
 | Source | 4LUT | DFF | uSRAM | LSRAM | Math | Globals | `clk` setup / hold slack @ 50 MHz | TCK setup / hold slack @ 6 MHz | `clk` Fmax |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Verilog | 4,930 / 93,516 | 3,677 | 15 | 5 | 0 | 2 | +13.130 / +0.067 ns | +13.595 / +0.055 ns | 184 MHz |
-| VHDL | 4,897 / 93,516 | 3,669 | 15 | 5 | 0 | 2 | +13.104 / +0.069 ns | +13.780 / +0.070 ns | 204 MHz |
+| Verilog | 4,894 / 93,516 | 3,674 | 15 | 5 | 0 | 2 | +12.738 / +0.041 ns | +13.503 / +0.074 ns | 179 MHz |
+| VHDL | 4,879 / 93,516 | 3,666 | 15 | 5 | 0 | 2 | +12.840 / +0.067 ns | +13.451 / +0.068 ns | 198 MHz |
 
 Per block (from Libero's hierarchical resource report, LUT and DFF include
 the RAM interface logic):
@@ -279,8 +280,8 @@ the RAM interface logic):
 | Block | Verilog 4LUT / DFF / uSRAM / LSRAM | VHDL 4LUT / DFF / uSRAM / LSRAM |
 | --- | ---: | ---: |
 | `u_spw` (`spw_axi_top`, generic configuration) | 552 / 337 / 0 / 2 | 559 / 337 / 0 / 2 |
-| `u_engine` (`spw_loopback_axi`) | 941 / 549 / 1 / 0 | 912 / 541 / 1 / 0 |
-| `u_debug` (fcapz ELA, EIO, EJTAG-AXI, `UJTAG` decode) | 3,428 / 2,782 / 14 / 3 | 3,417 / 2,782 / 14 / 3 |
+| `u_engine` (`spw_loopback_axi`) | 937 / 549 / 1 / 0 | 905 / 541 / 1 / 0 |
+| `u_debug` (fcapz ELA, EIO, EJTAG-AXI, `UJTAG` decode) | 3,396 / 2,779 / 14 / 3 | 3,406 / 2,779 / 14 / 3 |
 | top-level reset and I/O (plus the `INIT` block) | 9 / 9 / 0 / 0 | 9 / 9 / 0 / 0 |
 
 As on the other boards, most of the area is the debug infrastructure; the
@@ -288,7 +289,7 @@ SpaceWire core is about 550 LUTs plus its two FIFO RAMs (LSRAM). The setup
 slack per clock in the first table is set by the bounded TCK/`clk` crossings
 (16 ns budget), not by logic inside one domain; inside `clk` the worst path is
 the engine's register-read mux. Libero closes timing to the 50 MHz
-requirement only, so Fmax varies between builds (184 and 204 MHz here).
+requirement only, so Fmax varies between builds (179 and 198 MHz here).
 
 **Clock-domain crossings.** The fcapz cores cross between TCK and `clk`
 through synchronizers and Gray-pointer async FIFOs. `mpfs_disco_kit.sdc`
@@ -302,13 +303,13 @@ insertion delay of TCK against it.
 ## Hardware results
 
 Measured on a PolarFire SoC Discovery Kit (`MPFS095T-1FCSG325E`, embedded
-FlashPro5, fcapz `ftdi` backend at 6 MHz TCK) on 2026-11-03, with fpgacapZero
-v0.5.1 (`3e91813`, cores and host installed from the submodule) and Libero SoC
+FlashPro5, fcapz `ftdi` backend at 6 MHz TCK) on 2026-11-04, with fpgacapZero
+main (`552958c`, cores and host installed from the submodule) and Libero SoC
 2025.2, on the builds whose resources and timing are listed above. Each
 `host_loopback_test.py` run programs the board first (`build.py
 --program-only`); `ela_capture_demo.py` runs straight after the soak, without
-reprogramming. The same results were obtained for the Verilog and VHDL builds,
-except the ELA demo (see below).
+reprogramming. The Verilog and VHDL builds gave the same results: all 14 runs
+passed (7 per build).
 
 | Check | Result |
 | --- | --- |
@@ -322,23 +323,18 @@ except the ELA demo (see below).
 | TimeCodes | 4/4 round-tripped |
 | EEP / EOP | `0x42` + EEP (`tuser = 1`), `0x42` + EOP (`tuser = 0`) |
 | Fault under load | detected mid-stream; clean recovery, no new errors |
-| PRBS soak (10 Mbit/s, 60 s, fresh programming) | Verilog 3,482,289 / VHDL 3,482,131 back-to-back packets, ~59.2 M characters, 0 errors, ~0.99 MChar/s |
-| ELA capture (50 MHz sampling) | VHDL build: D/S toggling (about 5 samples per bit), `spw_do == spw_di` and `spw_so == spw_si` in all 256 samples. Verilog build: refused by the host, see below |
+| PRBS soak (10 Mbit/s, 60 s, fresh programming) | Verilog 3,482,059 / VHDL 3,483,721 back-to-back packets, ~59.2 M characters, 0 errors, ~0.99 MChar/s |
+| ELA capture (50 MHz sampling) | D/S toggling (about 5 samples per bit), `spw_do == spw_di` and `spw_so == spw_si` in all 256 samples |
 
-**ELA demo limitation (fpgacapZero v0.5.1).** The fcapz core manager keeps
-per-slot reset epochs that no reset clears: they rely on register initial
-values, which PolarFire does not load. When the ELA slot's epoch is odd, the
-host reads the slot as held in reset and refuses to configure the ELA
-(`ManagerResetError: ... MGR_SLOT_EPOCH ... is odd`). Each reset changes the
-epoch by 2, so its parity never changes while the design runs, and like every
-other register the epoch keeps its value across a reprogram: on the Verilog
-build it went from 16381 to 16393 over six reprograms of the same bitstream.
-Observed: the Verilog build was refused in every attempt (epochs 9, 32777,
-16381, 16393, across two bitstreams); the VHDL build was refused once (45041)
-and ran in the final suite run, with a correct capture. The same cause makes
-the host warn that the core manager "carries owner token ...", which is
-harmless. This needs a fix in fpgacapZero. The SpaceWire checks do not use
-the ELA and are not affected.
+**fpgacapZero version.** fpgacapZero v0.5.1 kept the core manager's reset
+epochs and owner token in registers with no reset, relying on initial values
+that PolarFire does not load. When an epoch came up odd the host refused the
+ELA demo (`ManagerResetError: ... MGR_SLOT_EPOCH ... is odd`), and because
+PolarFire registers survive a reprogram, the Verilog build was refused in
+every attempt. fpgacapZero main `552958c` derives the epoch parity from the
+live reset level and adds the `hub_por` input, which `mpfs_debug` drives from
+`FABRIC_POR_N`; with it the ELA demo passes on both builds and the host's
+"carries owner token" warning is gone.
 
 ## Author and License
 

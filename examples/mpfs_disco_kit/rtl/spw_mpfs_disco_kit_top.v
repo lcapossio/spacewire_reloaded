@@ -216,7 +216,7 @@ module spw_mpfs_disco_kit_top #(
                      selftest_pass, selftest_done, bringup_done, link_running};
 
     mpfs_debug #(.ELA_W(16), .EIO_W(8)) u_debug (
-        .clk(clk), .rst(rst),
+        .clk(clk), .rst(rst), .hub_por(~fabric_por_n),
         .tck(TCK), .tms(TMS), .tdi(TDI), .trstb(TRSTB), .tdo(TDO),
         .m_axi_awaddr(ax_awaddr), .m_axi_awlen(ax_awlen), .m_axi_awsize(ax_awsize),
         .m_axi_awburst(ax_awburst), .m_axi_awvalid(ax_awvalid), .m_axi_awready(ax_awready),

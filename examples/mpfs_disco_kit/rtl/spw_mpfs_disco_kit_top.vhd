@@ -60,6 +60,7 @@ architecture rtl of spw_mpfs_disco_kit_top is
     component mpfs_debug is
         port (
             clk, rst       : in  std_logic;
+            hub_por        : in  std_logic;
             tck, tms, tdi, trstb : in std_logic;
             tdo            : out std_logic;
             m_axi_awaddr   : out std_logic_vector(31 downto 0);
@@ -104,6 +105,7 @@ architecture rtl of spw_mpfs_disco_kit_top is
 
     -- reset
     signal fabric_por_n : std_logic;
+    signal hub_por    : std_logic;
     signal por_meta   : std_logic;
     signal por_sync   : std_logic;
     signal por_cnt    : unsigned(4 downto 0);
@@ -159,6 +161,7 @@ begin
     -- state can be trusted (see the Verilog top). Release is synchronous, 16
     -- clocks after the synchronized release.
     u_por: mpfs_por port map (fabric_por_n => fabric_por_n);
+    hub_por <= not fabric_por_n;  -- fcapz hub power-on reset (active high)
 
     process (clk, fabric_por_n) is
     begin
@@ -253,7 +256,7 @@ begin
 
     u_debug: mpfs_debug
         port map (
-            clk => clk, rst => rst,
+            clk => clk, rst => rst, hub_por => hub_por,
             tck => TCK, tms => TMS, tdi => TDI, trstb => TRSTB, tdo => TDO,
             m_axi_awaddr => ax_awaddr, m_axi_awlen => ax_awlen, m_axi_awsize => ax_awsize,
             m_axi_awburst => ax_awburst, m_axi_awvalid => ax_awvalid, m_axi_awready => ax_awready,

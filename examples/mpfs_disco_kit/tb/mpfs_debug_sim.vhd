@@ -15,6 +15,7 @@ use ieee.std_logic_1164.all;
 entity mpfs_debug is
     port (
         clk, rst       : in  std_logic;
+        hub_por        : in  std_logic;
         tck, tms, tdi, trstb : in std_logic;
         tdo            : out std_logic;
         m_axi_awaddr   : out std_logic_vector(31 downto 0);

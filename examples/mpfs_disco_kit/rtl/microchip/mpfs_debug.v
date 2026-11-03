@@ -29,6 +29,9 @@ module mpfs_debug #(
 ) (
     input  wire             clk,
     input  wire             rst,
+    // Power-on reset, active high (FABRIC_POR_N inverted): resets the fcapz
+    // hub and its slots, whose registers have no power-up value on PolarFire
+    input  wire             hub_por,
     // dedicated JTAG pins (straight to top-level ports)
     input  wire             tck,
     input  wire             tms,
@@ -87,6 +90,8 @@ module mpfs_debug #(
 
     // ELA + EIO behind the fcapz core manager on USER1. UJTAG has no
     // Test-Logic-Reset output, so tlr is tied off (TLR_RESET_EN = 0).
+    // hub_por clears the hub state that otherwise relies on register initial
+    // values, which Libero drops on PolarFire.
     fcapz_debug_multi #(
         .NUM_ELAS(1), .EIO_EN(1), .NUM_EIOS(1),
         .SAMPLE_W(ELA_W), .DEPTH(1024), .INPUT_PIPE(1),
@@ -95,10 +100,11 @@ module mpfs_debug #(
         .TLR_RESET_EN(0),
         .EIO_IN_W(EIO_W), .EIO_OUT_W(EIO_W)
     ) u_multi (
-        .tck(c1_tck), .tdi(c1_tdi), .tdo(c1_tdo),
+        .tck(c1_tck), .tdi(c1_tdi), .tdo(c1_tdo), .tdo_next(),
         .capture(c1_capture), .shift(c1_shift),
         .update(c1_update), .sel(c1_sel),
         .tlr(1'b0),
+        .hub_por(hub_por),
         .ela_sample_clk(clk),
         .ela_sample_rst(rst),
         .ela_probe_in(ela_probe),

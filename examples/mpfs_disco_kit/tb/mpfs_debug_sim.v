@@ -18,6 +18,7 @@ module mpfs_debug #(
 ) (
     input  wire             clk,
     input  wire             rst,
+    input  wire             hub_por,
     input  wire             tck,
     input  wire             tms,
     input  wire             tdi,
