@@ -226,7 +226,7 @@ See [`examples/de25_nano/README.md`](examples/de25_nano/README.md) for pins, bui
 
 - One `spw_axi_top` link in internal loopback, clocked from the board's 50 MHz `REF_CLK_50MHz`, running at 10 Mbit/s (generic RX/TX front ends).
 - After programming (or `SWITCH1`), the engine brings the link up and runs the fabric self-check on its own; `LED1`-`LED4` show bring-up, link running, self-check done and passed (all four lit = pass). No host is needed. PolarFire registers keep their contents across a JTAG reprogram and ignore initial values, so the reset comes from the device's fabric power-on reset rather than from fabric registers.
-- With a host, the Arty example's fpgacapZero checks run unchanged over the embedded FlashPro5 (fcapz `ftdi` backend, FTDI D2XX driver, no OpenOCD). All SpaceWire checks pass on both builds; the ELA capture demo runs only when an fpgacapZero core-manager counter, which PolarFire leaves uninitialized, happens to start even (see the example README).
+- With a host, the Arty example's fpgacapZero checks run unchanged over the embedded FlashPro5 (fcapz `ftdi` backend, FTDI D2XX driver, no OpenOCD). All SpaceWire checks pass on both builds; the host refuses the ELA capture demo whenever an fpgacapZero core-manager counter, which PolarFire never initializes, holds an odd value (see the example README).
 - A board-level cocotb test drives only the real pins (clock, switches, idle JTAG) and checks the LEDs, for Verilog (Icarus) and VHDL (GHDL); it is part of `python build.py test`.
 - `python build.py libero` runs the full Libero flow (synthesis, place-and-route, timing, programming data); `--program` also programs the board.
 

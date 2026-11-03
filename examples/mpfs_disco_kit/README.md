@@ -242,8 +242,8 @@ python examples/mpfs_disco_kit/host_loopback_test.py --stress 60  # back-to-back
 python examples/mpfs_disco_kit/ela_capture_demo.py                # ELA capture of the D/S lines -> VCD
 ```
 
-The ELA demo can be refused by the host on PolarFire, depending on the
-programming; see the [ELA demo limitation](#hardware-results).
+On PolarFire the host can refuse the ELA demo; see the
+[ELA demo limitation](#hardware-results).
 
 Probe map (the same in the Verilog and VHDL tops, and the same as on the
 DE25-Nano):
@@ -318,7 +318,7 @@ except the ELA demo (see below).
 | Power-on self-check | 4 packets x (16 PRBS + EOP): TX = RX = 68, 0 errors |
 | Host data-mover | 5-byte packet + EOP looped back intact |
 | EIO | `0x0F` (link, bring-up, done, pass) |
-| Error injection | freeze -> `errdisc`, invert D -> `errpar` (which link error an inverted D line produces depends on where in the character stream it lands); link drops and recovers, and the interrupted self-check re-runs with 0 errors |
+| Error injection | freeze -> `errdisc`, invert D -> `errpar` (`erresc` on the DE25-Nano); link drops and recovers, and the interrupted self-check re-runs with 0 errors |
 | TimeCodes | 4/4 round-tripped |
 | EEP / EOP | `0x42` + EEP (`tuser = 1`), `0x42` + EOP (`tuser = 0`) |
 | Fault under load | detected mid-stream; clean recovery, no new errors |
@@ -326,16 +326,19 @@ except the ELA demo (see below).
 | ELA capture (50 MHz sampling) | VHDL build: D/S toggling (about 5 samples per bit), `spw_do == spw_di` and `spw_so == spw_si` in all 256 samples. Verilog build: refused by the host, see below |
 
 **ELA demo limitation (fpgacapZero v0.5.1).** The fcapz core manager keeps
-per-slot reset epochs that no reset clears; they rely on register initial
-values, which PolarFire does not load, and keep whatever the registers held
-before programming. When the ELA slot's epoch starts odd, the host reads the
-slot as held in reset and refuses to configure the ELA (`ManagerResetError:
-... MGR_SLOT_EPOCH ... is odd`); each reset changes the epoch by 2, so the
-parity stays as it started until the next reprogram. Whether the demo runs is
-therefore a matter of chance per programming; when it runs, the capture is
-correct. The same cause makes the host warn that the core manager "carries
-owner token ...", which is harmless. This needs a fix in fpgacapZero. The
-SpaceWire checks do not use the ELA and are not affected.
+per-slot reset epochs that no reset clears: they rely on register initial
+values, which PolarFire does not load. When the ELA slot's epoch is odd, the
+host reads the slot as held in reset and refuses to configure the ELA
+(`ManagerResetError: ... MGR_SLOT_EPOCH ... is odd`). Each reset changes the
+epoch by 2, so its parity never changes while the design runs, and like every
+other register the epoch keeps its value across a reprogram: on the Verilog
+build it went from 16381 to 16393 over six reprograms of the same bitstream.
+Observed: the Verilog build was refused in every attempt (epochs 9, 32777,
+16381, 16393, across two bitstreams); the VHDL build was refused once (45041)
+and ran in the final suite run, with a correct capture. The same cause makes
+the host warn that the core manager "carries owner token ...", which is
+harmless. This needs a fix in fpgacapZero. The SpaceWire checks do not use
+the ELA and are not affected.
 
 ## Author and License
 
