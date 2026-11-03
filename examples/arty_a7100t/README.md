@@ -158,6 +158,13 @@ python examples/arty_a7100t/host_loopback_test.py \
     --bitfile examples/arty_a7100t/spw_arty_a7100t_top.bit
 ```
 
+The other boards reuse this script (and `ela_capture_demo.py`) through thin
+wrappers that only change the defaults: `--backend` selects the fcapz transport
+(`hw_server`, `openocd`, `usb_blaster` or `ftdi`, the last for an FTDI MPSSE
+adapter such as the PolarFire FlashPro5), `--hardware` selects the adapter, and
+`--axi-chain` / `--eio-chain` / `--ela-chain` pick the JTAG user chain of each
+core (Arty defaults: EJTAG-AXI on chain 4).
+
 ### Soak / stress test
 
 `--stress N` puts the self-check into continuous (loop) mode and free-runs

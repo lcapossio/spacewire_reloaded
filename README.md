@@ -4,7 +4,7 @@ Author: Leonardo Capossio - [bard0 design](https://www.bard0.com) - hello@bard0.
 
 SpaceWire Reloaded is a vendor-neutral SpaceWire link core with AXI4-Lite and AXI4-Stream interfaces, maintained in both VHDL and Verilog and verified in simulation and on FPGA hardware. It is a continuation of Joris van Rantwijk's **SpaceWire Light**: the proven SpaceWire encoder/decoder architecture is kept, the GRLIB-dependent (GPL) AMBA integration is replaced by a from-scratch AXI layer, and the entire core — bus interfaces included — is licensed **LGPL-2.1-or-later**.
 
-The core implements the SpaceWire link layer: data-strobe (DS) encoding, link initialisation and disconnect, credit-based flow control, N-Chars, and TimeCodes. Around it, an AXI4-Lite block exposes control, status, interrupt, and TimeCode registers, while an AXI4-Stream pair moves SpaceWire N-Chars in and out. A complete Arty A7-100T design runs a link in loopback and is validated over JTAG, and a Terasic DE25-Nano (Intel Agilex 5) design runs the same loopback, built with Quartus and validated over JTAG with the same host checks.
+The core implements the SpaceWire link layer: data-strobe (DS) encoding, link initialisation and disconnect, credit-based flow control, N-Chars, and TimeCodes. Around it, an AXI4-Lite block exposes control, status, interrupt, and TimeCode registers, while an AXI4-Stream pair moves SpaceWire N-Chars in and out. A complete Arty A7-100T design runs a link in loopback and is validated over JTAG, and a Terasic DE25-Nano (Intel Agilex 5) design runs the same loopback, built with Quartus and validated over JTAG with the same host checks, as does a Microchip PolarFire SoC Discovery Kit design built with Libero SoC.
 
 ## Index
 
@@ -18,6 +18,7 @@ The core implements the SpaceWire link layer: data-strobe (DS) encoding, link in
 - [Verification](#verification)
 - [Hardware Example: Arty A7-100T](#hardware-example-arty-a7-100t)
 - [Hardware Example: DE25-Nano (Agilex 5)](#hardware-example-de25-nano-agilex-5)
+- [Hardware Example: PolarFire SoC Discovery Kit](#hardware-example-polarfire-soc-discovery-kit)
 - [FPGA Resource Usage and Timing](#fpga-resource-usage-and-timing)
 - [License and Credits](#license-and-credits)
 
@@ -45,7 +46,7 @@ The original upstream README is preserved verbatim as [README.spacewire_light.md
 - **Bus-neutral internal split** — the SpaceWire core keeps a simple control/data interface, so further wrappers (AHB/APB, an AXI-DMA data path) can be added without touching the core.
 - **Vendor-neutral CDC** — two-flop synchronisers carrying Xilinx/Intel/Lattice/Synplify attributes, with Vivado/Quartus/Lattice constraint templates.
 - **Verification** — a dual-language cocotb regression, two-layer AXI protocol checking, SpaceWire exchange-level conformance checks, explicit functional coverage, and Verilator line/branch/expression/toggle coverage.
-- **Hardware examples** — an Arty A7-100T loopback design (Verilog and VHDL, Vivado) validated over JTAG, and a DE25-Nano loopback design (Verilog and VHDL, Quartus Prime Pro) for Intel Agilex 5, validated over JTAG (USB-Blaster) with the same fpgacapZero host checks.
+- **Hardware examples** — an Arty A7-100T loopback design (Verilog and VHDL, Vivado) validated over JTAG, and a DE25-Nano loopback design (Verilog and VHDL, Quartus Prime Pro) for Intel Agilex 5, validated over JTAG (USB-Blaster) with the same fpgacapZero host checks, and a PolarFire SoC Discovery Kit loopback design (Verilog and VHDL, Libero SoC), validated over JTAG (embedded FlashPro5) with the same checks.
 
 ## Repository Layout
 
@@ -56,6 +57,7 @@ The original upstream README is preserved verbatim as [README.spacewire_light.md
 - `syn`, `scripts` — synthesis wrappers and the resource-report and parity scripts.
 - `examples/arty_a7100t` — the Arty A7-100T hardware example.
 - `examples/de25_nano` — the DE25-Nano (Agilex 5) hardware example.
+- `examples/mpfs_disco_kit` — the PolarFire SoC Discovery Kit hardware example.
 - `doc` — the preserved SpaceWire Light manual and architecture documentation.
 - `third_party/cocotbext-axi` — vendored AXI BFM fork (git submodule).
 
@@ -144,9 +146,10 @@ python build.py test --hdl vhdl
 python build.py test --runner wsl
 python build.py vivado --dry-run
 python build.py quartus --dry-run
+python build.py libero --dry-run
 ```
 
-The FPGA flows look for the vendor tools on `PATH` (`vivado`; `quartus_sh`/`quartus_pgm`) and stop with an error naming the missing tool. `python build.py quartus` also accepts `--quartus-bin <dir>` to point at a Quartus `bin64` directory. Build outputs go under vendor folders at the repository root (Quartus: `quartus/`), which are not tracked.
+The FPGA flows look for the vendor tools on `PATH` (`vivado`; `quartus_sh`/`quartus_pgm`; `libero`) and stop with an error naming the missing tool. `python build.py quartus` also accepts `--quartus-bin <dir>` to point at a Quartus `bin64` directory, and `python build.py libero` accepts `--libero-bin <dir>` to point at Libero's `Designer/bin` directory. Build outputs go under vendor folders at the repository root (Quartus: `quartus/`, Libero: `libero/`), which are not tracked.
 
 `python build.py test` uses cocotb with `cocotbext-axi`. The regression depends on a small [fork of `cocotbext-axi`](https://github.com/bard0-design/cocotbext-axi/tree/spw-protocol-compliance) that adds an optional AXI handshake protocol checker to the BFMs. It is vendored as the [`third_party/cocotbext-axi`](third_party/cocotbext-axi) git submodule (pinning the exact fork commit) and installed editable from there by `requirements-dev.txt`. Setting `COCOTBEXT_AXI_CHECK_PROTOCOL=1` (the cocotb CI workflow does) enables the checker on every BFM in the run. To use upstream `cocotbext-axi` instead, replace the editable line in `requirements-dev.txt` with `cocotbext-axi` — the fork-specific test skips automatically.
 
@@ -217,9 +220,21 @@ See [`examples/arty_a7100t/README.md`](examples/arty_a7100t/README.md) for the r
 
 See [`examples/de25_nano/README.md`](examples/de25_nano/README.md) for pins, build, simulation, host verification, and resource/timing numbers.
 
+## Hardware Example: PolarFire SoC Discovery Kit
+
+[`examples/mpfs_disco_kit/`](examples/mpfs_disco_kit/) targets the Microchip PolarFire SoC Discovery Kit (MPFS-DISCO-KIT, `MPFS095T-1FCSG325E`) and is built with Libero SoC. The core and the `spw_loopback_axi` engine are again unchanged; only the FPGA fabric is used (the RISC-V MSS is left unconfigured). The vendor-specific parts sit in two wrappers under `rtl/microchip/`, each with behavioral stubs for simulation: the fabric power-on reset (`FABRIC_POR_N` of the PolarFire `INIT` block) and the fpgacapZero cores behind PolarFire's single user JTAG primitive (`UJTAG`): the core manager with an ELA and an EIO on `USER1`, the EJTAG-AXI bridge on `USER2`.
+
+- One `spw_axi_top` link in internal loopback, clocked from the board's 50 MHz `REF_CLK_50MHz`, running at 10 Mbit/s (generic RX/TX front ends).
+- After programming (or `SWITCH1`), the engine brings the link up and runs the fabric self-check on its own; `LED1`-`LED4` show bring-up, link running, self-check done and passed (all four lit = pass). No host is needed. PolarFire registers keep their contents across a JTAG reprogram and ignore initial values, so the reset comes from the device's fabric power-on reset rather than from fabric registers.
+- With a host, the Arty example's fpgacapZero checks run unchanged over the embedded FlashPro5 (fcapz `ftdi` backend, FTDI D2XX driver, no OpenOCD). All SpaceWire checks pass on both builds; the ELA capture demo runs only when an fpgacapZero core-manager counter, which PolarFire leaves uninitialized, happens to start even (see the example README).
+- A board-level cocotb test drives only the real pins (clock, switches, idle JTAG) and checks the LEDs, for Verilog (Icarus) and VHDL (GHDL); it is part of `python build.py test`.
+- `python build.py libero` runs the full Libero flow (synthesis, place-and-route, timing, programming data); `--program` also programs the board.
+
+See [`examples/mpfs_disco_kit/README.md`](examples/mpfs_disco_kit/README.md) for pins, build, simulation, host verification, and resource/timing numbers.
+
 ## FPGA Resource Usage and Timing
 
-Three views are reported: vendor place-and-route numbers from Vivado (Artix-7) and Quartus (Agilex 5), and a fast RTL-level trend metric from Yosys used in CI.
+Four views are reported: vendor place-and-route numbers from Vivado (Artix-7), Quartus (Agilex 5) and Libero (PolarFire SoC), and a fast RTL-level trend metric from Yosys used in CI.
 
 ### Vivado place-and-route (Artix-7)
 
@@ -244,6 +259,17 @@ The complete DE25-Nano example (`spw_axi_top` in the generic configuration, the 
 | VHDL | 4,036 / 46,800 | 6,160 | 5 (86,016) | 0 | +13.801 / +0.022 ns | 161 MHz | 228 / 294 / 2 |
 
 Most of the whole-design area is the fpgacapZero debug infrastructure (about 3,200 ALMs); the SpaceWire core itself is about 230 ALMs plus its two FIFO RAMs. The `clk` Fmax is set by the example engine's register-read mux, not the SpaceWire core, and since Quartus only works to the 50 MHz requirement it varies between compiles. Per-entity numbers are in [`examples/de25_nano/README.md`](examples/de25_nano/README.md).
+
+### Libero place-and-route (PolarFire SoC, full Discovery Kit design)
+
+The complete Discovery Kit example (`spw_axi_top` in the generic configuration, the `spw_loopback_axi` engine, the fpgacapZero ELA/EIO/EJTAG-AXI debug cores and the reset logic, with I/O) was built with Libero SoC 2025.2 (Synplify Pro) for `MPFS095T-1FCSG325E` (-1, 1.0 V core). `clk` is constrained at 50 MHz and JTAG TCK at 6 MHz; the design is fully constrained, with the TCK/`clk` crossings bounded to 16 ns. Slack is the worst case over SmartTime's three timing corners; Fmax is computed from the worst `clk` register-to-register setup slack of the slowest corner.
+
+| Source | Whole design 4LUT | DFF | uSRAM / LSRAM | Math | `clk` setup / hold slack @ 50 MHz | `clk` Fmax | of which `spw_axi_top` (4LUT / DFF / LSRAM) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Verilog | 4,930 / 93,516 | 3,677 | 15 / 5 | 0 | +13.130 / +0.067 ns | 184 MHz | 552 / 337 / 2 |
+| VHDL | 4,897 / 93,516 | 3,669 | 15 / 5 | 0 | +13.104 / +0.069 ns | 204 MHz | 559 / 337 / 2 |
+
+As on Agilex 5, the fpgacapZero debug cores are most of the area (about 3,400 LUTs); the `clk` Fmax is set by the example engine's register-read mux. Per-block numbers and the TCK timing are in [`examples/mpfs_disco_kit/README.md`](examples/mpfs_disco_kit/README.md).
 
 ### RTL-level trend metric (Yosys, CI)
 
