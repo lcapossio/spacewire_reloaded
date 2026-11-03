@@ -156,10 +156,10 @@ begin
 
     -- ---- reset: fabric power-on reset + SWITCH1 ----
     -- FABRIC_POR_N (rtl/microchip/mpfs_por.v) clears the synchronizer and the
-    -- counter asynchronously, the only asynchronous reset in the design: the
-    -- registers keep their contents across a JTAG reprogram, so no register
-    -- state can be trusted (see the Verilog top). Release is synchronous, 16
-    -- clocks after the synchronized release.
+    -- counter asynchronously: the registers keep their contents across a JTAG
+    -- reprogram, so no register state can be trusted (see the Verilog top).
+    -- Inverted, it also resets the fcapz hub (hub_por). Release is
+    -- synchronous, 16 clocks after the synchronized release.
     u_por: mpfs_por port map (fabric_por_n => fabric_por_n);
     hub_por <= not fabric_por_n;  -- fcapz hub power-on reset (active high)
 

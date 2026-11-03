@@ -69,9 +69,9 @@ module spw_mpfs_disco_kit_top #(
     // initial values) and keep their contents across a JTAG reprogram, so a
     // register-only power-on reset can start already released. The device's
     // fabric power-on reset (FABRIC_POR_N, rtl/microchip/mpfs_por.v) clears
-    // the synchronizer and the counter asynchronously: the only asynchronous
-    // reset in the design, needed because no register state can be trusted
-    // and clk may not be running yet. Release is synchronous: reset is held
+    // the synchronizer and the counter asynchronously, because no register
+    // state can be trusted and clk may not be running yet; inverted, it also
+    // resets the fcapz hub (hub_por). Release is synchronous: reset is held
     // for 16 clocks after the synchronized release. SWITCH1 is synchronized
     // before joining the synchronous reset.
     wire fabric_por_n;

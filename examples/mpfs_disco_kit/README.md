@@ -156,7 +156,7 @@ synchronized release, then follows the synchronized `SWITCH1`. The same signal,
 inverted, drives the fcapz core manager's `hub_por` input in `mpfs_debug`: it
 resets the manager and every slot through fcapz's own reset synchronizers, so
 the manager's reset epochs and owner token start from known values after every
-reprogram. These two are the only asynchronous resets in the design. On
+reprogram. `FABRIC_POR_N` is the design's only power-on reset source. On
 another vendor, the wrapper becomes
 that device's configuration-done or power-on reset (on the DE25-Nano, the
 Agilex reset release IP). In simulation `tb/mpfs_por_sim.v` / `.vhd` hold
