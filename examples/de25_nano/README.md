@@ -206,7 +206,7 @@ Results measured on the board are listed under [Hardware results](#hardware-resu
 
 ## FPGA resource usage and timing
 
-Test conditions (2026-11-03, fpgacapZero v0.5.1 `3e91813`): Quartus Prime Pro
+Test conditions (2026-11-05, fpgacapZero main `3f26e61`): Quartus Prime Pro
 26.1, `A5EB013BB23BE4SR1` (DE25-Nano; device timing models Preliminary), full
 compile (synthesis, place and route, timing analysis), `clk` constrained at 50
 MHz and JTAG TCK (`altera_reserved_tck`) at 24 MHz, generic RX/TX front ends
@@ -218,24 +218,26 @@ Whole design (SpaceWire core, loopback engine, fcapz debug cores, reset logic):
 
 | Build | ALMs | Registers | RAM blocks (bits) | DSP / PLL | Pins | `clk` setup / hold slack | `clk` Fmax | TCK Fmax |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Verilog | 4,091 / 46,800 | 6,171 | 5 (86,016) | 0 / 0 | 7 | +13.875 / +0.043 ns | 163 MHz | 49.7 MHz |
-| VHDL | 4,036 / 46,800 | 6,160 | 5 (86,016) | 0 / 0 | 7 | +13.801 / +0.022 ns | 161 MHz | 49.7 MHz |
+| Verilog | 3,572 / 46,800 | 6,133 | 5 (86,016) | 0 / 0 | 7 | +14.007 / +0.025 ns | 167 MHz | 49.7 MHz |
+| VHDL | 3,547 / 46,800 | 6,158 | 5 (86,016) | 0 / 0 | 7 | +14.571 / +0.030 ns | 184 MHz | 49.7 MHz |
 
 By entity (Quartus fitter "ALMs needed"):
 
 | Entity | Verilog ALMs / registers / M20K | VHDL ALMs / registers / M20K |
 | --- | --- | --- |
-| SpaceWire core (`spw_axi_top`) | 219 / 294 / 2 | 228 / 294 / 2 |
-| Loopback engine (`spw_loopback_axi`) | 588 / 550 / 0 | 541 / 542 / 0 |
-| fcapz debug (`de25_debug`: ELA 16 x 1024, EIO, EJTAG-AXI) | 3,195 / 4,839 / 3 | 3,181 / 4,839 / 3 |
+| SpaceWire core (`spw_axi_top`) | 219 / 294 / 2 | 225 / 294 / 2 |
+| Loopback engine (`spw_loopback_axi`) | 583 / 550 / 0 | 543 / 542 / 0 |
+| fcapz debug (`de25_debug`: ELA 16 x 1024, EIO, EJTAG-AXI) | 2,682 / 4,841 / 3 | 2,693 / 4,841 / 3 |
 
 The fcapz debug cores are most of the design. The SpaceWire core itself is about
-230 ALMs plus its two RX/TX FIFO RAMs. Fmax is the Quartus restricted Fmax of the
+220 ALMs plus its two RX/TX FIFO RAMs. "ALMs needed" depends on how densely the
+fitter packs: the previous compile (fpgacapZero `552958c`) needed about 3,200
+ALMs for the debug cores with almost the same register count (4,839). Fmax is the Quartus restricted Fmax of the
 slowest corner. The critical `clk` path is the engine's register-read mux
 (`r_addr` -> `s_axi_rdata`); Quartus only works to the 50 MHz requirement, so
 Fmax moves between compiles (earlier compiles of nearly the same design reached
 151 to 233 MHz). The fcapz async-FIFO Gray-pointer crossings meet their 8 ns
-`set_max_skew` / `set_net_delay` bounds with at least 5.9 / 7.1 ns of slack. A full compile takes about 4.5 minutes on a 16-core machine
+`set_max_skew` / `set_net_delay` bounds with at least 5.8 / 7.2 ns of slack. A full compile takes about 4.5 minutes on a 16-core machine
 (8 Quartus processors); synthesis alone takes about 1 minute.
 
 ## Hardware results
@@ -247,9 +249,10 @@ same results were obtained for the Verilog and VHDL builds; each run programs
 the board first, except the soak straight after the fault-under-load run.
 
 Re-verified on 2026-11-02 after the `syncdff` `d`/`q` port rename, with the same
-resources and timing as then. Re-verified again on 2026-11-03 with fpgacapZero
-v0.5.1 (`3e91813`, cores and host from the submodule), the build whose resources
-and timing are listed above. Both times `host_loopback_test.py` (basic,
+resources and timing as then, on 2026-11-03 with fpgacapZero v0.5.1
+(`3e91813`), on 2026-11-04 with fpgacapZero main (`552958c`), and on 2026-11-05
+with fpgacapZero main (`3f26e61`, cores and host from the submodule), the build whose resources and timing are listed above.
+Each time `host_loopback_test.py` (basic,
 `--inject`, `--timecode`, `--eep`, `--loadfault`, `--stress 60` with 0
 PRBS/framing errors) and `ela_capture_demo.py` were run on each build: 14/14
 PASS. The table below is from 2026-10-12.

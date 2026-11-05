@@ -11,9 +11,11 @@ Talks to the programmed board over JTAG and checks, end to end:
   * the same status mirrored on the EIO probe inputs.
 
 Requires the fcapz host package (``pip install`` the fpgacapZero host) and a
-backend: hw_server (default, Vivado/XSDB), OpenOCD, or usb_blaster (Quartus
+backend: hw_server (default, Vivado/XSDB), OpenOCD, usb_blaster (Quartus
 quartus_stp, for Intel/Altera boards; the DE25-Nano example wraps this script
-as examples/de25_nano/host_loopback_test.py).
+as examples/de25_nano/host_loopback_test.py), or ftdi (a direct FTDI JTAG
+adapter; the PolarFire SoC Discovery Kit example wraps this script as
+examples/mpfs_disco_kit/host_loopback_test.py).
 
 Examples:
     # hw_server (programs the bitstream on connect)
@@ -118,6 +120,13 @@ def make_transport(args):
         from fcapz.transport import QuartusStpTransport
         return QuartusStpTransport(hardware_name=args.hardware,
                                    quartus_stp_path=args.quartus_stp)
+    if args.backend == "ftdi":
+        # Direct FTDI MPSSE adapter (fcapz FtdiMpsseTransport), e.g. the
+        # embedded FlashPro5 of the PolarFire SoC Discovery Kit example; the
+        # IR table comes from the device IDCODE, the board must already be
+        # programmed.
+        from fcapz import FtdiMpsseTransport
+        return FtdiMpsseTransport(args.hardware)
     if args.backend == "openocd":
         from fcapz.transport import OpenOcdTransport
         return OpenOcdTransport(port=args.port or 6666, tap=args.tap)
@@ -131,9 +140,9 @@ def run(args) -> int:
     from fcapz.eio import EioController
 
     t = make_transport(args)
-    axi = EjtagAxiController(t, chain=4)
+    axi = EjtagAxiController(t, chain=args.axi_chain)
     axi.connect()
-    print("connected to EJTAG-AXI bridge (JTAG chain 4)")
+    print(f"connected to EJTAG-AXI bridge (JTAG chain {args.axi_chain})")
 
     # --- identity ---
     expect(axi.axi_read(EXAMPLE_ID) == EXPECT_EXAMPLE_ID, "EXAMPLE_ID == 'SPWL'")
@@ -219,9 +228,9 @@ def run_stress(args) -> int:
     from fcapz.ejtagaxi import EjtagAxiController
 
     t = make_transport(args)
-    axi = EjtagAxiController(t, chain=4)
+    axi = EjtagAxiController(t, chain=args.axi_chain)
     axi.connect()
-    print("connected to EJTAG-AXI bridge (JTAG chain 4)")
+    print(f"connected to EJTAG-AXI bridge (JTAG chain {args.axi_chain})")
     expect(axi.axi_read(EXAMPLE_ID) == EXPECT_EXAMPLE_ID, "EXAMPLE_ID == 'SPWL'")
     poll(lambda: axi.axi_read(STATUS), ST_BRINGUP_DONE)
     poll(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
@@ -273,7 +282,7 @@ def run_inject(args) -> int:
     from fcapz.ejtagaxi import EjtagAxiController
 
     t = make_transport(args)
-    axi = EjtagAxiController(t, chain=4)
+    axi = EjtagAxiController(t, chain=args.axi_chain)
     axi.connect()
     poll(lambda: axi.axi_read(STATUS), ST_BRINGUP_DONE)
     # continuous self-check so N-Chars flow (needed for the parity/invert case);
@@ -331,7 +340,7 @@ def run_timecode(args) -> int:
     from fcapz.ejtagaxi import EjtagAxiController
 
     t = make_transport(args)
-    axi = EjtagAxiController(t, chain=4)
+    axi = EjtagAxiController(t, chain=args.axi_chain)
     axi.connect()
     poll(lambda: axi.axi_read(STATUS), ST_BRINGUP_DONE)
     axi.axi_write(CTRL, 0x0)  # quiet the link, keep it up
@@ -362,7 +371,7 @@ def run_eep(args) -> int:
     from fcapz.ejtagaxi import EjtagAxiController
 
     t = make_transport(args)
-    axi = EjtagAxiController(t, chain=4)
+    axi = EjtagAxiController(t, chain=args.axi_chain)
     axi.connect()
     poll(lambda: axi.axi_read(STATUS), ST_BRINGUP_DONE)
     axi.axi_write(CTRL, 0x0)  # data-mover mode
@@ -406,7 +415,7 @@ def run_loadfault(args) -> int:
     from fcapz.ejtagaxi import EjtagAxiController
 
     t = make_transport(args)
-    axi = EjtagAxiController(t, chain=4)
+    axi = EjtagAxiController(t, chain=args.axi_chain)
     axi.connect()
     poll(lambda: axi.axi_read(STATUS), ST_BRINGUP_DONE)
     poll(lambda: axi.axi_read(STATUS), ST_LINK_RUNNING)
@@ -449,14 +458,19 @@ def run_loadfault(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--backend", choices=("hw_server", "openocd", "usb_blaster"),
+    p.add_argument("--backend", choices=("hw_server", "openocd", "usb_blaster", "ftdi"),
                    default="hw_server")
     p.add_argument("--bitfile", type=Path, default=DEFAULT_BIT)
     p.add_argument("--port", type=int, default=None)
     p.add_argument("--tap", default="xc7a100t.tap")
     p.add_argument("--fpga", default="xc7a100t")
     p.add_argument("--hardware", default=None,
-                   help="usb_blaster: Quartus hardware name (default: first cable)")
+                   help="usb_blaster: Quartus hardware name (default: first cable); "
+                        "ftdi: adapter channel description or serial "
+                        "(default: the single known JTAG adapter)")
+    p.add_argument("--axi-chain", type=int, default=4,
+                   help="EJTAG-AXI JTAG chain (Arty: 4 = USER4; Intel: sld_virtual_jtag "
+                        "instance; PolarFire: 2 = USER2)")
     p.add_argument("--quartus-stp", default=None,
                    help="usb_blaster: quartus_stp executable (default: found on PATH)")
     p.add_argument("--eio-chain", type=int, default=1,

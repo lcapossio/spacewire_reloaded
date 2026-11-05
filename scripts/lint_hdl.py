@@ -53,6 +53,13 @@ VERILOG_SOURCES = [
     "examples/de25_nano/tb/de25_reset_release_sim.v",
     "examples/de25_nano/tb/de25_debug_sim.v",
     "examples/de25_nano/rtl/spw_de25_nano_top.v",
+    # PolarFire SoC Discovery Kit top with its vendor-wrapper sim stubs. The
+    # Libero-only wrappers (examples/mpfs_disco_kit/rtl/microchip/: INIT fabric
+    # power-on reset, fcapz cores on the UJTAG primitive) are checked by Libero
+    # synthesis instead.
+    "examples/mpfs_disco_kit/tb/mpfs_por_sim.v",
+    "examples/mpfs_disco_kit/tb/mpfs_debug_sim.v",
+    "examples/mpfs_disco_kit/rtl/spw_mpfs_disco_kit_top.v",
     "tests/cocotb/spw_axi_top/spw_axi_top_loop_tb.v",
 ]
 
@@ -75,6 +82,9 @@ VERILOG_RTL_SOURCES = [
     "examples/de25_nano/tb/de25_reset_release_sim.v",
     "examples/de25_nano/tb/de25_debug_sim.v",
     "examples/de25_nano/rtl/spw_de25_nano_top.v",
+    "examples/mpfs_disco_kit/tb/mpfs_por_sim.v",
+    "examples/mpfs_disco_kit/tb/mpfs_debug_sim.v",
+    "examples/mpfs_disco_kit/rtl/spw_mpfs_disco_kit_top.v",
 ]
 
 
@@ -105,6 +115,7 @@ YOSYS_TOPS = [
     YosysTop("AXI top wrapper", "spw_axi_top"),
     YosysTop("Arty loopback engine", "spw_loopback_axi"),
     YosysTop("DE25-Nano loopback top", "spw_de25_nano_top"),
+    YosysTop("Discovery Kit loopback top", "spw_mpfs_disco_kit_top"),
 ]
 
 VHDL_COMMON = [
@@ -182,6 +193,21 @@ VHDL_GROUPS = [
             "examples/de25_nano/tb/de25_reset_release_sim.vhd",
             "examples/de25_nano/tb/de25_debug_sim.vhd",
             "examples/de25_nano/rtl/spw_de25_nano_top.vhd",
+        ],
+    ),
+    (
+        "VHDL Discovery Kit example",
+        VHDL_COMMON
+        + [
+            "rtl/vhdl/spwstream.vhd",
+            "rtl/vhdl/spw_axis_tx.vhd",
+            "rtl/vhdl/spw_axis_rx.vhd",
+            "rtl/vhdl/spw_axi_lite_regs.vhd",
+            "rtl/vhdl/spw_axi_top.vhd",
+            "examples/arty_a7100t/rtl/spw_loopback_axi.vhd",
+            "examples/mpfs_disco_kit/tb/mpfs_por_sim.vhd",
+            "examples/mpfs_disco_kit/tb/mpfs_debug_sim.vhd",
+            "examples/mpfs_disco_kit/rtl/spw_mpfs_disco_kit_top.vhd",
         ],
     ),
 ]
