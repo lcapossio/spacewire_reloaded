@@ -255,10 +255,10 @@ The complete DE25-Nano example (`spw_axi_top` in the generic configuration, the 
 
 | Source | Whole design ALMs | Registers | RAM blocks (bits) | DSP | `clk` setup / hold slack @ 50 MHz | `clk` Fmax | of which `spw_axi_top` (ALMs / registers / M20K) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Verilog | 4,091 / 46,800 | 6,171 | 5 (86,016) | 0 | +13.875 / +0.043 ns | 163 MHz | 219 / 294 / 2 |
-| VHDL | 4,036 / 46,800 | 6,160 | 5 (86,016) | 0 | +13.801 / +0.022 ns | 161 MHz | 228 / 294 / 2 |
+| Verilog | 3,572 / 46,800 | 6,133 | 5 (86,016) | 0 | +14.007 / +0.025 ns | 167 MHz | 219 / 294 / 2 |
+| VHDL | 3,547 / 46,800 | 6,158 | 5 (86,016) | 0 | +14.571 / +0.030 ns | 184 MHz | 225 / 294 / 2 |
 
-Most of the whole-design area is the fpgacapZero debug infrastructure (about 3,200 ALMs); the SpaceWire core itself is about 230 ALMs plus its two FIFO RAMs. The `clk` Fmax is set by the example engine's register-read mux, not the SpaceWire core, and since Quartus only works to the 50 MHz requirement it varies between compiles. Per-entity numbers are in [`examples/de25_nano/README.md`](examples/de25_nano/README.md).
+Most of the whole-design area is the fpgacapZero debug infrastructure (about 2,700 ALMs, depending on fitter packing); the SpaceWire core itself is about 220 ALMs plus its two FIFO RAMs. The `clk` Fmax is set by the example engine's register-read mux, not the SpaceWire core, and since Quartus only works to the 50 MHz requirement it varies between compiles. Per-entity numbers are in [`examples/de25_nano/README.md`](examples/de25_nano/README.md).
 
 ### Libero place-and-route (PolarFire SoC, full Discovery Kit design)
 
@@ -266,8 +266,8 @@ The complete Discovery Kit example (`spw_axi_top` in the generic configuration, 
 
 | Source | Whole design 4LUT | DFF | uSRAM / LSRAM | Math | `clk` setup / hold slack @ 50 MHz | `clk` Fmax | of which `spw_axi_top` (4LUT / DFF / LSRAM) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Verilog | 4,894 / 93,516 | 3,674 | 15 / 5 | 0 | +12.738 / +0.041 ns | 179 MHz | 552 / 337 / 2 |
-| VHDL | 4,879 / 93,516 | 3,666 | 15 / 5 | 0 | +12.840 / +0.067 ns | 198 MHz | 559 / 337 / 2 |
+| Verilog | 4,925 / 93,516 | 3,677 | 15 / 5 | 0 | +12.807 / +0.068 ns | 192 MHz | 554 / 337 / 2 |
+| VHDL | 4,896 / 93,516 | 3,669 | 15 / 5 | 0 | +12.716 / +0.066 ns | 190 MHz | 559 / 337 / 2 |
 
 As on Agilex 5, the fpgacapZero debug cores are most of the area (about 3,400 LUTs); the `clk` Fmax is set by the example engine's register-read mux. Per-block numbers and the TCK timing are in [`examples/mpfs_disco_kit/README.md`](examples/mpfs_disco_kit/README.md).
 

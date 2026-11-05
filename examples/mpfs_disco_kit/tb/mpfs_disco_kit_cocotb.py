@@ -22,7 +22,7 @@ from cocotb.utils import get_sim_time
 
 CLK_PERIOD_NS = 20            # 50 MHz, REF_CLK_50MHz
 POR_LOW_CYCLES = 10           # tb/mpfs_por_sim: fabric_por_n low for 200 ns
-POR_CYCLES = POR_LOW_CYCLES + 2 + 16  # + release synchronizer + por_cnt[4]
+POR_CYCLES = POR_LOW_CYCLES + 2 + 16 + 1  # + release synchronizer + por_cnt[4] + rst register
 PASS_TIMEOUT_US = 3000        # generous bound for bring-up + 4-packet self-check
 HEARTBEAT_US = 100            # progress log period while waiting
 

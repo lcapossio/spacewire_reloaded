@@ -258,8 +258,8 @@ after `--loadfault` (stop/restart of the self-check mid-stream).
 
 Re-verified on 2026-11-02 after the `syncdff` `d`/`q` port rename (same
 resources and timing as with `44d1059`), on 2026-11-03 with fpgacapZero v0.5.1
-(`3e91813`), and on 2026-11-04 with fpgacapZero main (`552958c`, cores and host
-from the submodule), the builds listed under
+(`3e91813`), on 2026-11-04 with fpgacapZero main (`552958c`), and on 2026-11-05
+with fpgacapZero main (`3f26e61`, cores and host from the submodule), the builds listed under
 [FPGA resource usage and timing](#fpga-resource-usage-and-timing). Each time
 `host_loopback_test.py` (basic, `--inject`, `--timecode`, `--eep`,
 `--loadfault`, `--stress 60` with 0 PRBS/framing errors) and
@@ -278,18 +278,18 @@ below are from the earlier runs.
 
 Whole design (SpaceWire core + loopback engine + fpgacapZero debug cores: 2 ELA,
 2 EIO, EJTAG-AXI bridge) on `xc7a100tcsg324-1` (Artix-7), Vivado 2025.2, default
-implementation strategy, fpgacapZero main (`552958c`), 2026-11-04. Post-route,
+implementation strategy, fpgacapZero main (`3f26e61`), 2026-11-05. Post-route,
 all timing constraints met. Against fpgacapZero `44d1059` the same builds are
-200-550 LUTs and about 280 registers larger. The SpaceWire core and engine
+280-610 LUTs and about 300 registers larger. The SpaceWire core and engine
 RTL is unchanged, so the growth comes from the upstream debug-core additions
-(core manager and burst readout).
+(core manager, burst readout and reset hardening).
 
 | Build | HDL | Clocks | LUTs | Registers | BRAM | BUFG | MMCM | Setup WNS | Link rate |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| generic | Verilog | clk 100 MHz | 4367 (6.9%) | 5104 (4.0%) | 4 | 3 | 0 | +2.559 ns | ~10 Mbit/s |
-| fast | Verilog | clk 100, rxclk 150, txclk 100 MHz | 4433 (7.0%) | 5274 (4.2%) | 4 | 6 | 1 | +1.772 ns | 100 Mbit/s |
-| generic | VHDL | clk 100 MHz | 4454 (7.0%) | 5129 (4.0%) | 4 | 3 | 0 | +2.215 ns | ~10 Mbit/s |
-| fast | VHDL | clk 100, rxclk 150, txclk 100 MHz | 4541 (7.2%) | 5301 (4.2%) | 4 | 6 | 1 | +0.928 ns | 100 Mbit/s |
+| generic | Verilog | clk 100 MHz | 4434 (7.0%) | 5131 (4.0%) | 4 | 3 | 0 | +2.287 ns | ~10 Mbit/s |
+| fast | Verilog | clk 100, rxclk 150, txclk 100 MHz | 4498 (7.1%) | 5301 (4.2%) | 4 | 6 | 1 | +1.434 ns | 100 Mbit/s |
+| generic | VHDL | clk 100 MHz | 4529 (7.1%) | 5146 (4.1%) | 4 | 3 | 0 | +2.277 ns | ~10 Mbit/s |
+| fast | VHDL | clk 100, rxclk 150, txclk 100 MHz | 4623 (7.3%) | 5319 (4.2%) | 4 | 6 | 1 | +0.516 ns | 100 Mbit/s |
 
 The fast build adds the MMCM (1) and extra clock buffers for the separate
 `rxclk`/`txclk` domains and the oversampling fast RX/TX front ends. Its setup

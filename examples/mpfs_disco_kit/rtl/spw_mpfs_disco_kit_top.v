@@ -73,23 +73,11 @@ module spw_mpfs_disco_kit_top #(
     // state can be trusted and clk may not be running yet; inverted, it also
     // resets the fcapz hub (hub_por). Release is synchronous: reset is held
     // for 16 clocks after the synchronized release. SWITCH1 is synchronized
-    // before joining the synchronous reset.
+    // before joining the synchronous reset. rst comes straight from a
+    // register (set by FABRIC_POR_N): it also feeds asynchronous resets
+    // inside the fcapz cores, so it must not glitch.
     wire fabric_por_n;
     mpfs_por u_por (.fabric_por_n(fabric_por_n));
-
-    reg       por_meta, por_sync;
-    reg [4:0] por_cnt;
-    always @(posedge clk or negedge fabric_por_n) begin
-        if (!fabric_por_n) begin
-            por_meta <= 1'b0;
-            por_sync <= 1'b0;
-            por_cnt  <= 5'd0;
-        end else begin
-            por_meta <= 1'b1;
-            por_sync <= por_meta;
-            if (por_sync && !por_cnt[4]) por_cnt <= por_cnt + 5'd1;
-        end
-    end
 
     wire btn0_raw = (RST_ACTIVE_LOW != 0) ? ~btn[0] : btn[0];
     reg  btn0_meta = 1'b0, btn0_sync = 1'b0;
@@ -97,7 +85,23 @@ module spw_mpfs_disco_kit_top #(
         btn0_meta <= btn0_raw;
         btn0_sync <= btn0_meta;
     end
-    wire rst = ~por_cnt[4] | btn0_sync;
+
+    reg       por_meta, por_sync;
+    reg [4:0] por_cnt;
+    reg       rst;
+    always @(posedge clk or negedge fabric_por_n) begin
+        if (!fabric_por_n) begin
+            por_meta <= 1'b0;
+            por_sync <= 1'b0;
+            por_cnt  <= 5'd0;
+            rst      <= 1'b1;
+        end else begin
+            por_meta <= 1'b1;
+            por_sync <= por_meta;
+            if (por_sync && !por_cnt[4]) por_cnt <= por_cnt + 5'd1;
+            rst      <= ~por_cnt[4] | btn0_sync;
+        end
+    end
 
     // ---- SpaceWire link signals (internal loopback) ----
     // Host-controlled error injection on the transmit side, before the

@@ -159,7 +159,9 @@ begin
     -- counter asynchronously: the registers keep their contents across a JTAG
     -- reprogram, so no register state can be trusted (see the Verilog top).
     -- Inverted, it also resets the fcapz hub (hub_por). Release is
-    -- synchronous, 16 clocks after the synchronized release.
+    -- synchronous, 16 clocks after the synchronized release. rst comes
+    -- straight from a register: it also feeds asynchronous resets inside the
+    -- fcapz cores, so it must not glitch.
     u_por: mpfs_por port map (fabric_por_n => fabric_por_n);
     hub_por <= not fabric_por_n;  -- fcapz hub power-on reset (active high)
 
@@ -169,12 +171,14 @@ begin
             por_meta <= '0';
             por_sync <= '0';
             por_cnt  <= (others => '0');
+            rst      <= '1';
         elsif rising_edge(clk) then
             por_meta <= '1';
             por_sync <= por_meta;
             if por_sync = '1' and por_cnt(4) = '0' then
                 por_cnt <= por_cnt + 1;
             end if;
+            rst      <= (not por_cnt(4)) or btn0_sync;
         end if;
     end process;
 
@@ -187,8 +191,6 @@ begin
             btn0_sync <= btn0_meta;
         end if;
     end process;
-
-    rst <= (not por_cnt(4)) or btn0_sync;
 
     -- ---- internal loopback, with transmit-side error injection ----
     --   inj_freeze -> hold D/S static; inj_invert -> invert the outgoing D.
