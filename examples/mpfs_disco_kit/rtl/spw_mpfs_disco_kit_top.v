@@ -71,8 +71,9 @@ module spw_mpfs_disco_kit_top #(
     // fabric power-on reset (FABRIC_POR_N, rtl/microchip/mpfs_por.v) clears
     // the synchronizer and the counter asynchronously, because no register
     // state can be trusted and clk may not be running yet; inverted, it also
-    // resets the fcapz hub (hub_por). Release is synchronous: reset is held
-    // for 16 clocks after the synchronized release. SWITCH1 is synchronized
+    // resets the fcapz hub (hub_por). Release is synchronous: the counter
+    // runs 16 clocks after the synchronized release and rst follows one clock
+    // later (17 in all). SWITCH1 is synchronized
     // before joining the synchronous reset. rst comes straight from a
     // register (set by FABRIC_POR_N): it also feeds asynchronous resets
     // inside the fcapz cores, so it must not glitch.

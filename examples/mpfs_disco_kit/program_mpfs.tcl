@@ -8,6 +8,8 @@
 #
 #   libero SCRIPT:program_mpfs.tcl "SCRIPT_ARGS:<project dir>"
 #
+# <project dir> is relative to the working directory, or absolute.
+#
 # Nothing else (an fcapz host, OpenOCD) may hold the FlashPro's JTAG channel
 # while this runs.
 
@@ -15,7 +17,7 @@ if {$argc != 1} {
     puts "usage: SCRIPT_ARGS:<project dir>"
     exit 2
 }
-set outdir [lindex $argv 0]
+set outdir [file normalize [lindex $argv 0]]
 open_project -file "$outdir/spw_mpfs_disco_kit_top.prjx"
 run_tool -name {PROGRAMDEVICE}
 close_project

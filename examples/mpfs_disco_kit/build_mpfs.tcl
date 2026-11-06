@@ -8,11 +8,11 @@
 #
 #   libero SCRIPT:build_mpfs.tcl "SCRIPT_ARGS:<repo> <hdl> <flow> <outdir> <program>"
 #
-#   <repo>     repository root (absolute)
+#   <repo>     repository root (relative to the working directory, or absolute)
 #   <hdl>      verilog | vhdl  (the VHDL build uses the Verilog vendor wrapper)
 #   <flow>     synth = synthesis only
 #              full  = synthesis + place-and-route + timing + programming data
-#   <outdir>   project directory (absolute); deleted and recreated
+#   <outdir>   project directory (relative or absolute); deleted and recreated
 #   <program>  1 = program the board through the first FlashPro found (full only)
 
 if {$argc != 5} {
@@ -20,6 +20,11 @@ if {$argc != 5} {
     exit 2
 }
 lassign $argv repo hdl flow outdir program
+# build.py passes repository-relative paths (SCRIPT_ARGS is split on spaces, and
+# the checkout path may contain some); make them absolute before Libero changes
+# its working directory.
+set repo   [file normalize $repo]
+set outdir [file normalize $outdir]
 
 set here    "$repo/examples/mpfs_disco_kit"
 set engine  "$repo/examples/arty_a7100t/rtl"

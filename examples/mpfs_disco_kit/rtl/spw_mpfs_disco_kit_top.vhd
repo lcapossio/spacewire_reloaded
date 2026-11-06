@@ -159,7 +159,8 @@ begin
     -- counter asynchronously: the registers keep their contents across a JTAG
     -- reprogram, so no register state can be trusted (see the Verilog top).
     -- Inverted, it also resets the fcapz hub (hub_por). Release is
-    -- synchronous, 16 clocks after the synchronized release. rst comes
+    -- synchronous, 17 clocks after the synchronized release (16 counted,
+    -- then the rst register). rst comes
     -- straight from a register: it also feeds asynchronous resets inside the
     -- fcapz cores, so it must not glitch.
     u_por: mpfs_por port map (fabric_por_n => fabric_por_n);

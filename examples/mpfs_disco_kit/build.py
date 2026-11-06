@@ -62,10 +62,20 @@ def find_libero(bin_dir: str | None) -> str:
     return found
 
 
+def rel(path: Path) -> str:
+    """Path relative to the repository root (Libero runs there), with / separators."""
+    return path.relative_to(ROOT).as_posix()
+
+
 def run_libero(libero: str, script: Path, script_args: list[str], log: Path) -> int:
     log.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [libero, f"SCRIPT:{script.as_posix()}",
-           "SCRIPT_ARGS:" + " ".join(script_args), f"LOGFILE:{log.as_posix()}"]
+    # Libero splits SCRIPT_ARGS on spaces, so only repository-relative paths go
+    # into it (the Tcl makes them absolute); the checkout path may contain spaces.
+    bad = [a for a in script_args if not a or any(c.isspace() for c in a)]
+    if bad:
+        raise SystemExit(f"ERROR: Libero script arguments may not contain spaces: {bad}")
+    cmd = [libero, f"SCRIPT:{rel(script)}",
+           "SCRIPT_ARGS:" + " ".join(script_args), f"LOGFILE:{rel(log)}"]
     print(f"[build] {' '.join(cmd)}", flush=True)
     rc = subprocess.run(cmd, cwd=ROOT, check=False).returncode
     if rc != 0:
@@ -159,7 +169,7 @@ def main() -> int:
     if args.program_only:
         if not (outdir / f"{PROJECT}.prjx").is_file():
             raise SystemExit(f"ERROR: no project in {outdir_rel.as_posix()}; build it first")
-        rc = run_libero(libero, PROGRAM_TCL, [outdir.as_posix()],
+        rc = run_libero(libero, PROGRAM_TCL, [outdir_rel.as_posix()],
                         ROOT / "libero" / f"program_{args.hdl}.log")
         if rc == 0:
             print("[build] board programmed: LED1-LED4 all lit = self-check passed")
@@ -167,7 +177,7 @@ def main() -> int:
 
     # The Tcl deletes and recreates the project, so no stale report survives.
     rc = run_libero(libero, TCL,
-                    [ROOT.as_posix(), args.hdl, args.flow, outdir.as_posix(),
+                    [".", args.hdl, args.flow, outdir_rel.as_posix(),
                      "1" if args.program else "0"],
                     ROOT / "libero" / f"build_{args.hdl}.log")
     if rc != 0:

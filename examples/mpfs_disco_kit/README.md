@@ -152,8 +152,8 @@ design then runs from stale state.
 reprogram. In the top-level it clears the reset synchronizer and a 16-clock
 counter and sets the reset register asynchronously (no register state can be
 trusted, and `clk` may not be running yet). Release is synchronous: reset is
-held for 16 clocks after the synchronized release, then follows the
-synchronized `SWITCH1`. The reset comes straight from a register because it
+released 17 clocks after the synchronized release (16 counted, then the reset
+register), then follows the synchronized `SWITCH1`. The reset comes straight from a register because it
 also drives asynchronous resets inside the fcapz cores, including the EJTAG-AXI
 bridge's AXI reset, which fcapz synchronizes to TCK to clear the bridge's
 JTAG-side state. The same signal,
@@ -199,7 +199,7 @@ in place of the vendor wrappers (no JTAG host attached). It checks what you
 would see on the LEDs:
 
 - while the power-on reset holds the design, all LEDs are off;
-- the reset releases 16 clocks after `fabric_por_n` (synchronized) goes high,
+- the reset releases 17 clocks after `fabric_por_n` (synchronized) goes high,
   `LED1` lights first, then all four
   (bring-up, link, self-check done and passed) light and stay lit;
 - pressing `SWITCH1` turns every LED off, and releasing it brings the link back
