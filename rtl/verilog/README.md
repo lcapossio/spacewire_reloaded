@@ -63,6 +63,18 @@ SystemVerilog keyword. The original `syncdff` data ports `di`/`do` are
 therefore named `d`/`q` (in the VHDL too, to keep the two in parity);
 `scripts/lint_hdl.py` enforces this with an `iverilog -g2012` parse.
 
+Verilog has no constrained parameter types, so `spwstream` checks its
+parameters itself, matching the VHDL generic ranges: an out-of-range value
+stops simulation at time 0 with a message. These range checks use
+`$display`/`$finish`, which not every synthesis tool honours (Vivado prints
+the message and carries on), so they are not a guaranteed synthesis stop.
+The generic receiver (`RXIMPL=0`) takes one bit per clock and requires
+`RXCHUNK=1`, as in the VHDL. `RXIMPL=0` with an otherwise valid `RXCHUNK`
+(2 to 4) fails elaboration in simulation and synthesis alike (Vivado,
+Quartus and Yosys report the missing module
+`spwstream_error_rxchunk_must_be_1_with_generic_receiver`); an out-of-range
+`RXCHUNK` is left to the range check.
+
 License
 -------
 

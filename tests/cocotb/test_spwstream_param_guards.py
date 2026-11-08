@@ -8,8 +8,10 @@ rxfifosize_bits 6..14, txfifosize_bits 2..14, impl enums, tickdiv 12..24).
 
 These are elaboration/time-0 guards ($display + $finish), so each invalid value
 is checked by elaborating the module as top and confirming the guard message
-appears. (VHDL already enforces these through subtype-constrained generics, so no
-VHDL guard is added.)"""
+appears. RXIMPL=0 with RXCHUNK>1 (Bug 49) is stopped at elaboration by a
+missing-module instance instead, so synthesis fails too; its check looks for
+the module name. (VHDL already enforces these through subtype-constrained
+generics and port widths, so no VHDL guard is added.)"""
 
 import shutil
 import subprocess
@@ -66,6 +68,8 @@ SPWSTREAM_BAD = [
     ({"TXIMPL": 2}, "TXIMPL must be"),
     ({"RXCHUNK": 0}, "RXCHUNK must be"),
     ({"RXCHUNK": 5}, "RXCHUNK must be"),
+    ({"RXIMPL": 0, "RXCHUNK": 2}, "spwstream_error_rxchunk_must_be_1_with_generic_receiver"),
+    ({"RXIMPL": 0, "RXCHUNK": 4}, "spwstream_error_rxchunk_must_be_1_with_generic_receiver"),
     ({"RXFIFOSIZE_BITS": 5}, "RXFIFOSIZE_BITS must be"),
     ({"RXFIFOSIZE_BITS": 15}, "RXFIFOSIZE_BITS must be"),
     ({"TXFIFOSIZE_BITS": 1}, "TXFIFOSIZE_BITS must be"),
@@ -76,7 +80,7 @@ SPWSTREAM_BAD = [
 @pytest.mark.skipif(not have_icarus, reason="iverilog/vvp not on PATH")
 @pytest.mark.parametrize(
     "params,msg", SPWSTREAM_BAD,
-    ids=[f"{list(p)[0]}={list(p.values())[0]}" for p, _ in SPWSTREAM_BAD],
+    ids=[",".join(f"{k}={v}" for k, v in p.items()) for p, _ in SPWSTREAM_BAD],
 )
 def test_spwstream_rejects_invalid_param_verilog(tmp_path, params, msg):
     out = _elaborate_and_run(tmp_path, "spwstream", SPWSTREAM_SRCS, params)
@@ -100,3 +104,11 @@ def test_streamtest_rejects_invalid_tickdiv_verilog(tmp_path, tickdiv):
 def test_spw_axi_top_rejects_invalid_param_verilog(tmp_path):
     out = _elaborate_and_run(tmp_path, "spw_axi_top", AXITOP_SRCS, {"RXCHUNK": 5})
     assert "RXCHUNK must be" in out, out
+
+@pytest.mark.skipif(not have_icarus, reason="iverilog/vvp not on PATH")
+@pytest.mark.parametrize("rxchunk", [1, 2, 3, 4])
+def test_spwstream_fast_receiver_accepts_rxchunk_verilog(tmp_path, rxchunk):
+    """Bug 49: the RXIMPL=0 RXCHUNK check must not reject the fast receiver."""
+    out = _elaborate_and_run(tmp_path, "spwstream", SPWSTREAM_SRCS,
+                             {"RXIMPL": 1, "RXCHUNK": rxchunk})
+    assert "must be" not in out, out

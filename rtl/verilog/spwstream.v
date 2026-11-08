@@ -150,6 +150,18 @@ module spwstream #(
     end
     // verilator coverage_on
 
+    // The generic receive front end takes one bit per clock, so RXIMPL=0
+    // requires RXCHUNK=1 (the VHDL spwstream fails synthesis on a port width
+    // mismatch). Vivado synthesis ignores $finish, so this configuration is
+    // stopped at elaboration instead: the branch instantiates a module that
+    // does not exist, and its name is the error message. Out-of-range RXCHUNK
+    // values are left to the range check above.
+    generate
+        if (RXIMPL == 0 && RXCHUNK >= 2 && RXCHUNK <= 4) begin : g_bad_rxchunk
+            spwstream_error_rxchunk_must_be_1_with_generic_receiver u_bad_rxchunk ();
+        end
+    endgenerate
+
     reg rxpacket;
     reg rxeep;
     reg txpacket;
