@@ -258,8 +258,9 @@ after `--loadfault` (stop/restart of the self-check mid-stream).
 
 Re-verified on 2026-11-02 after the `syncdff` `d`/`q` port rename (same
 resources and timing as with `44d1059`), on 2026-11-03 with fpgacapZero v0.5.1
-(`3e91813`), on 2026-11-04 with fpgacapZero main (`552958c`), and on 2026-11-05
-with fpgacapZero main (`3f26e61`, cores and host from the submodule), the builds listed under
+(`3e91813`), on 2026-11-04 with fpgacapZero main (`552958c`), on 2026-11-05
+with fpgacapZero main (`3f26e61`), and on 2026-11-08 with fpgacapZero main
+(`211d70a`, cores and host from the submodule), the builds listed under
 [FPGA resource usage and timing](#fpga-resource-usage-and-timing). Each time
 `host_loopback_test.py` (basic, `--inject`, `--timecode`, `--eep`,
 `--loadfault`, `--stress 60` with 0 PRBS/framing errors) and
@@ -278,8 +279,10 @@ below are from the earlier runs.
 
 Whole design (SpaceWire core + loopback engine + fpgacapZero debug cores: 2 ELA,
 2 EIO, EJTAG-AXI bridge) on `xc7a100tcsg324-1` (Artix-7), Vivado 2025.2, default
-implementation strategy, fpgacapZero main (`3f26e61`), 2026-11-05. Post-route,
-all timing constraints met. Against fpgacapZero `44d1059` the same builds are
+implementation strategy, fpgacapZero main (`211d70a`). The VHDL builds were
+rebuilt with it on 2026-11-08 (same resources and timing as with `3f26e61`);
+the Verilog builds are from 2026-11-05 with `3f26e61`, as none of the
+fpgacapZero files they compile changed. Post-route, all timing constraints met. Against fpgacapZero `44d1059` the same builds are
 280-610 LUTs and about 300 registers larger. The SpaceWire core and engine
 RTL is unchanged, so the growth comes from the upstream debug-core additions
 (core manager, burst readout and reset hardening).

@@ -267,7 +267,8 @@ DE25-Nano):
 Full design (`spw_axi_top`, the `spw_loopback_axi` engine, the fcapz debug
 cores and the reset logic, with I/O), Libero SoC 2025.2 (Synplify Pro
 synthesis), `MPFS095T-1FCSG325E` (speed grade -1, core voltage 1.0 V, extended
-temperature range), built on 2026-11-05 with fpgacapZero main (`3f26e61`).
+temperature range), built on 2026-11-09 with fpgacapZero main (`211d70a`; the
+same resources and slacks as with `3f26e61`).
 `clk` is constrained at 50 MHz and JTAG TCK at 6 MHz; the design is fully
 constrained (the TCK/`clk` crossings are bounded, see below). Slack is the
 worst case over SmartTime's three multi-corner conditions (`slow_lv_ht`,
@@ -309,8 +310,8 @@ insertion delay of TCK against it.
 ## Hardware results
 
 Measured on a PolarFire SoC Discovery Kit (`MPFS095T-1FCSG325E`, embedded
-FlashPro5, fcapz `ftdi` backend at 6 MHz TCK) on 2026-11-05, with fpgacapZero
-main (`3f26e61`, cores and host installed from the submodule) and Libero SoC
+FlashPro5, fcapz `ftdi` backend at 6 MHz TCK) on 2026-11-09, with fpgacapZero
+main (`211d70a`, cores and host installed from the submodule) and Libero SoC
 2025.2, on the builds whose resources and timing are listed above. Each
 `host_loopback_test.py` run programs the board first (`build.py
 --program-only`); `ela_capture_demo.py` runs straight after the soak, without
@@ -329,7 +330,7 @@ passed (7 per build).
 | TimeCodes | 4/4 round-tripped |
 | EEP / EOP | `0x42` + EEP (`tuser = 1`), `0x42` + EOP (`tuser = 0`) |
 | Fault under load | detected mid-stream; clean recovery, no new errors |
-| PRBS soak (10 Mbit/s, 60 s, fresh programming) | Verilog 3,482,172 (60.0 s) / VHDL 3,524,935 (60.8 s) back-to-back packets, ~59.2 / ~59.9 M characters, 0 errors, ~0.99 MChar/s |
+| PRBS soak (10 Mbit/s, 60 s, fresh programming) | Verilog 3,482,204 / VHDL 3,482,126 back-to-back packets in 60.0 s, ~59.2 M characters each, 0 errors, ~0.99 MChar/s |
 | ELA capture (50 MHz sampling) | D/S toggling (about 5 samples per bit), `spw_do == spw_di` and `spw_so == spw_si` in all 256 samples |
 
 **fpgacapZero version.** fpgacapZero v0.5.1 kept the core manager's reset

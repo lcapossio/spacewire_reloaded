@@ -206,7 +206,8 @@ Results measured on the board are listed under [Hardware results](#hardware-resu
 
 ## FPGA resource usage and timing
 
-Test conditions (2026-11-05, fpgacapZero main `3f26e61`): Quartus Prime Pro
+Test conditions (2026-11-05, fpgacapZero main `3f26e61`; unchanged with `211d70a`,
+which changes none of the fpgacapZero files this build compiles): Quartus Prime Pro
 26.1, `A5EB013BB23BE4SR1` (DE25-Nano; device timing models Preliminary), full
 compile (synthesis, place and route, timing analysis), `clk` constrained at 50
 MHz and JTAG TCK (`altera_reserved_tck`) at 24 MHz, generic RX/TX front ends
@@ -250,8 +251,9 @@ the board first, except the soak straight after the fault-under-load run.
 
 Re-verified on 2026-11-02 after the `syncdff` `d`/`q` port rename, with the same
 resources and timing as then, on 2026-11-03 with fpgacapZero v0.5.1
-(`3e91813`), on 2026-11-04 with fpgacapZero main (`552958c`), and on 2026-11-05
-with fpgacapZero main (`3f26e61`, cores and host from the submodule), the build whose resources and timing are listed above.
+(`3e91813`), on 2026-11-04 with fpgacapZero main (`552958c`), on 2026-11-05
+with fpgacapZero main (`3f26e61`), and on 2026-11-09 with fpgacapZero main
+(`211d70a`, cores and host from the submodule), the build whose resources and timing are listed above.
 Each time `host_loopback_test.py` (basic,
 `--inject`, `--timecode`, `--eep`, `--loadfault`, `--stress 60` with 0
 PRBS/framing errors) and `ela_capture_demo.py` were run on each build: 14/14
