@@ -25,3 +25,5 @@ quartus/
 *.sof
 *.qws
 qdb/
+# Libero SoC build artifacts (examples/mpfs_disco_kit/build.py -> libero/)
+libero/

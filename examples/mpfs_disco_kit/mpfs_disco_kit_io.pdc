@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# Copyright (C) 2026 Leonardo Capossio - bard0 design
+# Author: Leonardo Capossio - bard0 design - hello@bard0.com
+#
+# I/O constraints for the PolarFire SoC Discovery Kit (MPFS-DISCO-KIT,
+# MPFS095T-1FCSG325E) SpaceWire loopback example. Pins and bank voltages follow
+# Microchip's Discovery Kit reference design (MPFS_DISCOVERY_KIT_BOARD_MISC.pdc
+# and _BANK_SETTINGS.pdc), as used by the fpgacapZero mpfs_disco_kit example.
+# The JTAG pins (TCK/TMS/TDI/TRSTB/TDO) are dedicated and are not constrained.
+
+set_iobank -bank_name Bank0 -vcci 1.80 -fixed true -update_iostd true
+set_iobank -bank_name Bank1 -vcci 3.30 -fixed true -update_iostd true
+
+# 50 MHz reference oscillator (REF_CLK_50MHz)
+set_io -port_name clk -pin_name R18 -fixed true -io_std LVCMOS18 -DIRECTION INPUT
+
+# Push-buttons, active-low: SWITCH1 = reset, SWITCH2 = EIO input only
+set_io -port_name {btn[0]} -pin_name T19 -fixed true -DIRECTION INPUT
+set_io -port_name {btn[1]} -pin_name U18 -fixed true -DIRECTION INPUT
+
+# Status LEDs LED1..LED4, active-high
+set_io -port_name {led[0]} -pin_name T18 -fixed true -DIRECTION OUTPUT
+set_io -port_name {led[1]} -pin_name V17 -fixed true -DIRECTION OUTPUT
+set_io -port_name {led[2]} -pin_name U20 -fixed true -DIRECTION OUTPUT
+set_io -port_name {led[3]} -pin_name U21 -fixed true -DIRECTION OUTPUT

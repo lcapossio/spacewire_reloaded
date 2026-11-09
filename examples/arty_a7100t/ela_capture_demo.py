@@ -22,6 +22,9 @@ SpaceWire bit is ~10 samples wide.
 
 Intel/Altera boards use the usb_blaster backend (Quartus quartus_stp); the
 DE25-Nano example wraps this script as examples/de25_nano/ela_capture_demo.py.
+The ftdi backend drives a direct FTDI JTAG adapter; the PolarFire SoC
+Discovery Kit example wraps this script as
+examples/mpfs_disco_kit/ela_capture_demo.py.
 """
 
 from __future__ import annotations
@@ -49,6 +52,13 @@ def make_transport(args):
         from fcapz.transport import QuartusStpTransport
         return QuartusStpTransport(hardware_name=args.hardware,
                                    quartus_stp_path=args.quartus_stp)
+    if args.backend == "ftdi":
+        # Direct FTDI MPSSE adapter (fcapz FtdiMpsseTransport), e.g. the
+        # embedded FlashPro5 of the PolarFire SoC Discovery Kit example; the
+        # IR table comes from the device IDCODE, the board must already be
+        # programmed.
+        from fcapz import FtdiMpsseTransport
+        return FtdiMpsseTransport(args.hardware)
     if args.backend == "openocd":
         from fcapz.transport import OpenOcdTransport
         return OpenOcdTransport(port=args.port or 6666, tap=args.tap)
@@ -73,10 +83,15 @@ def transitions(samples, lsb):
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--backend", choices=("hw_server", "openocd", "usb_blaster"),
+    p.add_argument("--backend", choices=("hw_server", "openocd", "usb_blaster", "ftdi"),
                    default="hw_server")
     p.add_argument("--hardware", default=None,
-                   help="usb_blaster: Quartus hardware name (default: first cable)")
+                   help="usb_blaster: Quartus hardware name (default: first cable); "
+                        "ftdi: adapter channel description or serial "
+                        "(default: the single known JTAG adapter)")
+    p.add_argument("--axi-chain", type=int, default=4,
+                   help="EJTAG-AXI JTAG chain (Arty: 4 = USER4; Intel: sld_virtual_jtag "
+                        "instance; PolarFire: 2 = USER2)")
     p.add_argument("--quartus-stp", default=None,
                    help="usb_blaster: quartus_stp executable (default: found on PATH)")
     p.add_argument("--ela-chain", type=int, default=1,
@@ -98,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
     from fcapz.analyzer import Analyzer, CaptureConfig, TriggerConfig, ProbeSpec
 
     t = make_transport(args)
-    axi = EjtagAxiController(t, chain=4)
+    axi = EjtagAxiController(t, chain=args.axi_chain)
     axi.connect()
     # Bring up + start continuous self-check so the D/S lines are always active.
     for _ in range(2000):
@@ -175,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.backend == "usb_blaster":
         t.close()  # hand the JTAG device back to a fresh EJTAG-AXI session
-        axi = EjtagAxiController(make_transport(args), chain=4)
+        axi = EjtagAxiController(make_transport(args), chain=args.axi_chain)
         axi.connect()
     axi.axi_write(CTRL, 0x0)  # stop self-check
     print("\nRESULT: %s - ELA captured live SpaceWire D/S activity" %

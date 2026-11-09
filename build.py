@@ -142,10 +142,13 @@ def cmd_test(args: argparse.Namespace) -> None:
     # tests/cocotb: AXI core regressions; examples/arty_a7100t/tb: the Arty
     # loopback example functional sim (engine + core, no fpgacapZero submodule
     # needed for simulation); examples/de25_nano/tb: the DE25-Nano board-level
-    # sim (reset-release stub instead of the Quartus-only vendor wrapper).
+    # sim (reset-release stub instead of the Quartus-only vendor wrapper);
+    # examples/mpfs_disco_kit/tb: the PolarFire SoC Discovery Kit board-level
+    # sim (debug stub instead of the Libero-only UJTAG wrapper).
     pytest_args = [sys.executable, "-m", "pytest",
                    *temp_args,
-                   "tests/cocotb", "examples/arty_a7100t/tb", "examples/de25_nano/tb"]
+                   "tests/cocotb", "examples/arty_a7100t/tb", "examples/de25_nano/tb",
+                   "examples/mpfs_disco_kit/tb"]
     if args.hdl == "verilog":
         pytest_args.extend(["-k", "verilog"])
     elif args.hdl == "vhdl":
@@ -191,6 +194,19 @@ def cmd_quartus(args: argparse.Namespace) -> None:
            "--hdl", args.hdl, "--flow", args.flow]
     if args.quartus_bin:
         cmd.extend(["--quartus-bin", args.quartus_bin])
+    if args.program:
+        cmd.append("--program")
+    if args.dry_run:
+        cmd.append("--dry-run")
+    run(cmd)
+
+
+def cmd_libero(args: argparse.Namespace) -> None:
+    """Build the PolarFire SoC Discovery Kit example with Libero SoC (outputs in libero/)."""
+    cmd = [sys.executable, str(ROOT / "examples" / "mpfs_disco_kit" / "build.py"),
+           "--hdl", args.hdl, "--flow", args.flow]
+    if args.libero_bin:
+        cmd.extend(["--libero-bin", args.libero_bin])
     if args.program:
         cmd.append("--program")
     if args.dry_run:
@@ -246,6 +262,20 @@ def main() -> int:
     quartus_parser.add_argument("--dry-run", action="store_true",
                                 help="check flow wiring without building")
     quartus_parser.set_defaults(func=cmd_quartus)
+
+    libero_parser = subparsers.add_parser(
+        "libero", help="build the PolarFire SoC Discovery Kit example with Libero SoC")
+    libero_parser.add_argument("--hdl", choices=("verilog", "vhdl"), default="verilog",
+                               help="HDL flavor of the example to build")
+    libero_parser.add_argument("--flow", choices=("full", "synth"), default="full",
+                               help="full = through programming data; synth = synthesis only")
+    libero_parser.add_argument("--libero-bin", default=None,
+                               help="Libero SoC Designer/bin directory (default: libero on PATH)")
+    libero_parser.add_argument("--program", action="store_true",
+                               help="program the board (embedded FlashPro5) after the build")
+    libero_parser.add_argument("--dry-run", action="store_true",
+                               help="check flow wiring without building")
+    libero_parser.set_defaults(func=cmd_libero)
 
     args = parser.parse_args()
     if getattr(args, "vhdl", False) and getattr(args, "verilog", False):
