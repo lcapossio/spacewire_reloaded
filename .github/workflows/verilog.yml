@@ -166,3 +166,27 @@ jobs:
 
       - name: Compare VHDL and Verilog synthesis resources
         run: python3 scripts/synth_resource_compare.py
+
+  formal-fast-frontends:
+    # Unbounded VHDL/Verilog equivalence of spwrecvfront_fast (rxchunk 1-4)
+    # and spwxmit_fast; see parity/formal/README.md.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install formal tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ghdl yosys
+
+      - name: Show tool versions
+        run: |
+          ghdl --version
+          yosys -V
+          command -v yosys-abc
+
+      - name: Prove fast front-end VHDL/Verilog equivalence
+        run: python3 scripts/formal_parity_fast.py
