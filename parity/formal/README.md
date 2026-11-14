@@ -41,7 +41,9 @@ python3 scripts/formal_parity_fast.py rx2 tx     # a subset
 ```
 
 It needs `ghdl` (with `--synth`), `yosys` and `yosys-abc` on `PATH`, and runs
-in CI (`formal-fast-frontends` job in `.github/workflows/verilog.yml`). For
+in CI (`formal-fast-frontends` job in `.github/workflows/verilog.yml`, pinned to
+Ubuntu 24.04: GHDL 4.1.0, Yosys/ABC 0.33). With Yosys 0.52 (Ubuntu 26.04) the
+`spwxmit_fast` proof does not close; the receiver proofs do. For
 each target the VHDL is synthesized with GHDL, and both designs are placed in a
 miter (`parity/formal/fast/miter_rx.sv`, `miter_tx.sv`) that drives them with
 the same inputs and asserts equal outputs. Both clocks are free formal inputs

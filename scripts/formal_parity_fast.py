@@ -148,7 +148,8 @@ def check(name: str, work: Path) -> tuple[str, bool, str]:
     for line in out.splitlines():
         if "was asserted in frame" in line:
             return name, False, f"counterexample: {line.strip()}"
-    return name, False, f"no verdict, see {d / 'abc.log'}"
+    tail = "\n".join("    " + l for l in (out + r.stderr).splitlines()[-15:])
+    return name, False, f"no verdict, see {d / 'abc.log'}; last lines:\n{tail}"
 
 
 def main() -> int:

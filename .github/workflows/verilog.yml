@@ -169,8 +169,10 @@ jobs:
 
   formal-fast-frontends:
     # Unbounded VHDL/Verilog equivalence of spwrecvfront_fast (rxchunk 1-4)
-    # and spwxmit_fast; see parity/formal/README.md.
-    runs-on: ubuntu-latest
+    # and spwxmit_fast; see parity/formal/README.md. Pinned to Ubuntu 24.04
+    # (GHDL 4.1.0, Yosys/ABC 0.33), the toolchain the proofs were verified
+    # with; Yosys 0.52 on Ubuntu 26.04 does not close the spwxmit_fast proof.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
 
     steps:
