@@ -40,7 +40,7 @@ The original upstream README is preserved verbatim as [README.spacewire_light.md
 
 - **SpaceWire link layer** — DS encode/decode, the link start/connect/run state machine, disconnect detection, credit-based flow control, N-Chars, and TimeCodes.
 - **Selectable front ends** — a generic system-clock receiver and transmitter, plus an oversampled "fast" receiver and a dedicated-clock "fast" transmitter, chosen per instance.
-- **Dual language** — VHDL and Verilog-2001, kept in parity with trace, waveform, and manifest cross-checks in CI. The Verilog also parses as SystemVerilog (checked by lint).
+- **Dual language** — VHDL and Verilog-2001, kept in parity with trace, waveform, and manifest cross-checks in CI, plus formal equivalence proofs for several blocks, including the dual-clock fast front ends ([parity/formal/README.md](parity/formal/README.md)). The Verilog also parses as SystemVerilog (checked by lint).
 - **AXI4-Lite register block** — link control, live status, sticky errors, interrupts, and TimeCode TX/RX in a 64-byte aperture.
 - **AXI4-Stream N-Char path** — TX (sink) and RX (source) bridges that preserve SpaceWire's explicit EOP/EEP characters instead of hiding them in the data byte.
 - **Bus-neutral internal split** — the SpaceWire core keeps a simple control/data interface, so further wrappers (AHB/APB, an AXI-DMA data path) can be added without touching the core.
