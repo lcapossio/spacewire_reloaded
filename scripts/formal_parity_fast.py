@@ -14,16 +14,17 @@ is reduced with ABC signal correspondence (scorr, honouring the miter's
 environment assumptions) and checked with ABC's PDR engine: "proved" is an
 unbounded proof, a failure prints the frame of the counterexample.
 
-Power-up state: for rx the registers of both designs start from arbitrary,
-independent values (only the two buffer RAMs start equal, at zero). For tx
-every register of both designs starts at zero: the transmitter has txclk
-registers that no reset clears (b_token, c_bits, e_shift, ...), and with
-independent arbitrary power-up values the PDR run does not converge.
+Power-up state: all source initializers of both designs are removed. For rx
+every register then starts from an arbitrary value, independently in each
+design (only the two buffer RAMs start equal, at zero). For tx every register
+of both designs starts at zero; with independent arbitrary values the
+outputs differ after a short reset. See parity/formal/README.md for the
+environment rules each miter assumes.
 
 Targets:
-  rx1..rx4  spwrecvfront_fast with rxchunk = 1..4
+  rx1..rx4  spwrecvfront_fast with rxchunk = 1..4, arbitrary power-up
   tx        spwxmit_fast (through parity/formal/fast/spwxmit_fast_flat.vhd),
-            identical all-zero power-up state
+            all-zero power-up
 
 Run from the repository root with ghdl, yosys and yosys-abc on PATH:
   python3 scripts/formal_parity_fast.py [target ...] [--jobs N] [--keep]
@@ -52,14 +53,18 @@ TARGETS = {
         vtop="spwrecvfront_fast", generics=[f"-grxchunk={n}"],
         verilog=[VLOG / "syncdff.v", VLOG / "spwram.v", VLOG / "spwrecvfront_fast.v"],
         miter=FAST / "miter_rx.sv", mtop="miter_rx", gold="gold_rx",
-        chparam=f"-chparam RXCHUNK {n}", zero_init=False) for n in (1, 2, 3, 4)},
+        chparam=f"-chparam RXCHUNK {n}", zero_init=False,
+        init_desc="arbitrary power-up") for n in (1, 2, 3, 4)},
     "tx": dict(
         vhdl=[VHDL / "spwpkg.vhd", VHDL / "syncdff.vhd", VHDL / "spwxmit_fast.vhd",
               FAST / "spwxmit_fast_flat.vhd"],
         vtop="spwxmit_fast_flat", generics=[],
         verilog=[VLOG / "syncdff.v", VLOG / "spwxmit_fast.v"],
-        miter=FAST / "miter_tx.sv", mtop="miter_tx", gold="gold_tx", chparam="",
-        zero_init=True),
+        miter=FAST / "miter_tx.sv", mtop="miter_tx", gold="gold_tx",
+        # rst comes straight from the spwstream rst input: only assume that it
+        # covers one clk edge (it is synchronous to clk).
+        chparam="-chparam RST_CLK 1 -chparam RST_TXCLK 0", zero_init=True,
+        init_desc="all-zero power-up"),
 }
 
 # Same model preparation as SymbiYosys (prove mode, multiclock on, abc pdr),
@@ -74,6 +79,9 @@ read_verilog {verilog}
 read_verilog -formal {miter}
 hierarchy -top {mtop} {chparam}
 prep -top {mtop}
+# Drop every source initializer (VHDL signal defaults, Verilog initial
+# blocks) in both designs; only the miter's own registers keep theirs.
+setattr -unset init */w:* {mtop}/* %d
 # Both buffer RAMs start from the same (zero) contents.
 setundef -zero -params t:$mem_v2
 {zero_init}memory_map
@@ -111,6 +119,14 @@ write_aiger -I -B -zinit -no-startoffset {aig}
 """
 
 
+def yosys_path(p: Path) -> str:
+    """A file name as a quoted Yosys command argument."""
+    s = p.as_posix()
+    if '"' in s:
+        raise ValueError(f"path not usable in a Yosys script: {s}")
+    return f'"{s}"'
+
+
 def run(cmd: list[str], cwd: Path, log: Path) -> subprocess.CompletedProcess:
     r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     log.write_text(r.stdout + r.stderr)
@@ -129,11 +145,11 @@ def check(name: str, work: Path) -> tuple[str, bool, str]:
     gold_v.write_text(r.stdout)
     ys = d / "model.ys"
     ys.write_text(YOSYS_SCRIPT.format(
-        gold_v=gold_v.as_posix(), vtop=t["vtop"], gold=t["gold"],
-        verilog=" ".join(p.as_posix() for p in t["verilog"]),
-        miter=t["miter"].as_posix(), mtop=t["mtop"], chparam=t["chparam"],
-        aig=(d / "model.aig").as_posix(),
-        zero_init="# All registers of both designs power up at zero.\nsetundef -zero -init\n"
+        gold_v=yosys_path(gold_v), vtop=t["vtop"], gold=t["gold"],
+        verilog=" ".join(map(yosys_path, t["verilog"])),
+        miter=yosys_path(t["miter"]), mtop=t["mtop"], chparam=t["chparam"],
+        aig=yosys_path(d / "model.aig"),
+        zero_init="# Every register of both designs powers up at zero.\nsetundef -zero -init\n"
                   if t["zero_init"] else ""))
     r = run(["yosys", "-q", "-s", str(ys)], d, d / "yosys.log")
     if r.returncode:
@@ -141,15 +157,16 @@ def check(name: str, work: Path) -> tuple[str, bool, str]:
     r = run(["yosys-abc", "-c",
              "read_aiger model.aig; strash; scorr -c; fold; pdr; write_cex -a cex.aiw"],
             d, d / "abc.log")
-    out = r.stdout
-    if "Property proved" in out:
-        init = "zero power-up" if t["zero_init"] else "arbitrary power-up"
-        return name, True, f"proved (unbounded, PDR, {init})"
-    for line in out.splitlines():
-        if "was asserted in frame" in line:
-            return name, False, f"counterexample: {line.strip()}"
-    tail = "\n".join("    " + l for l in (out + r.stderr).splitlines()[-15:])
-    return name, False, f"no verdict, see {d / 'abc.log'}; last lines:\n{tail}"
+    lines = [ln.strip() for ln in r.stdout.splitlines()]
+    proved = [ln for ln in lines if ln.startswith("Property proved.")]
+    cex = [ln for ln in lines if "was asserted in frame" in ln]
+    if r.returncode == 0 and len(proved) == 1 and not cex:
+        return name, True, f"proved (unbounded, PDR, {t['init_desc']})"
+    if cex:
+        return name, False, f"counterexample: {cex[0]}"
+    tail = "\n".join("    " + ln for ln in (r.stdout + r.stderr).splitlines()[-15:])
+    return name, False, (f"no verdict (abc exit {r.returncode}), see {d / 'abc.log'};"
+                         f" last lines:\n{tail}")
 
 
 def main() -> int:
@@ -162,6 +179,8 @@ def main() -> int:
     bad = [t for t in args.targets if t not in TARGETS]
     if bad:
         ap.error(f"unknown target(s): {', '.join(bad)}")
+    if len(set(args.targets)) != len(args.targets):
+        ap.error("duplicate target names")
     args.targets = args.targets or list(TARGETS)
 
     missing = [t for t in ("ghdl", "yosys", "yosys-abc") if shutil.which(t) is None]

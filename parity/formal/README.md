@@ -42,55 +42,66 @@ python3 scripts/formal_parity_fast.py rx2 tx     # a subset
 
 It needs `ghdl` (with `--synth`), `yosys` and `yosys-abc` on `PATH`, and runs
 in CI (`formal-fast-frontends` job in `.github/workflows/verilog.yml`, pinned to
-Ubuntu 24.04: GHDL 4.1.0, Yosys/ABC 0.33). With Yosys 0.52 (Ubuntu 26.04) the
-`spwxmit_fast` proof does not close; the receiver proofs do. For
-each target the VHDL is synthesized with GHDL, and both designs are placed in a
-miter (`parity/formal/fast/miter_rx.sv`, `miter_tx.sv`) that drives them with
-the same inputs and asserts equal outputs. Both clocks are free formal inputs
-(Yosys `clk2fflogic`): independent clocks with any phase and frequency ratio.
-The miter is reduced with ABC signal correspondence (`scorr`) and proved with
-ABC PDR, which gives an unbounded proof. `spwxmit_fast` record ports go through
+Ubuntu 24.04: GHDL 4.1.0, Yosys/ABC 0.33, the versions the proofs were
+verified with). For each target the VHDL is synthesized with GHDL, and both
+designs are placed in a miter (`parity/formal/fast/miter_rx.sv`,
+`miter_tx.sv`) that drives them with the same inputs and asserts equal
+outputs. Both clocks are free formal inputs (Yosys `clk2fflogic`):
+independent clocks with any phase and frequency ratio. The miter is reduced
+with ABC signal correspondence (`scorr`) and proved with ABC PDR, which gives
+an unbounded proof. `spwxmit_fast` record ports go through
 `parity/formal/fast/spwxmit_fast_flat.vhd`.
+
+Before the proof, every source initializer in both designs (VHDL signal
+defaults and Verilog `initial` blocks) is removed, so power-up state comes
+only from the choice in the table.
 
 | Target | Configuration | Power-up state | Verdict |
 | --- | --- | --- | --- |
-| `rx1`..`rx4` | `spwrecvfront_fast`, rxchunk 1, 2, 3, 4 | registers arbitrary and independent in each design; both buffer RAMs zero | PASS, unbounded |
-| `tx` | `spwxmit_fast` | every register of both designs zero | PASS, unbounded |
-| (diagnostic) | `spwxmit_fast` | registers arbitrary and independent | not proved: PDR did not converge in 25 min; BMC found no counterexample in 32 formal steps (20 min), only about a dozen clock cycles after reset, so weak evidence |
+| `rx1`..`rx4` | `spwrecvfront_fast`, rxchunk 1, 2, 3, 4 | every register arbitrary, independently in each design; both buffer RAMs zero | PASS, unbounded |
+| `tx` | `spwxmit_fast` | every register zero in both designs | PASS, unbounded |
+| (diagnostic) | `spwxmit_fast` | every register arbitrary, independently in each design | FAIL within 3 formal steps; still fails (by step 16) when the comparison waits 2, 3 or 4 `txclk` edges after reset; not investigated further |
 
-Run time for all five targets with `--jobs 4`: 7.5 min on a 16-thread
-Windows 11 machine (WSL, GHDL 4.1.0, Yosys 0.33) that was also running other
-jobs, 2026-11-10. Each proof was checked for vacuity with Verilog mutants,
-which all fail: a split receive data bit (frame 28) and a wrong buffer tail
-pointer (frame 29) in `spwrecvfront_fast`, a wrong parity bit (frame 24) and a
-wrong EOP code (frame 101) in `spwxmit_fast`.
+Run time for all five targets with `--jobs 5`: 1 min 20 s on a 16-thread
+Windows 11 machine (WSL, GHDL 4.1.0, Yosys 0.33), 2026-11-16. Each proof was
+checked for vacuity with Verilog mutants, which all fail: a split receive data
+bit (rxchunk 1, frame 29) and a wrong buffer tail pointer (rxchunk 2, frame
+26) in `spwrecvfront_fast`, a wrong parity bit (frame 14) and a wrong EOP code
+(frame 82) in `spwxmit_fast`.
 
-Unlike the manifests above, these miters do constrain the inputs:
+Unlike the manifests above, these miters constrain the inputs. Each rule is a
+condition of the result:
 
-- **Reset.** Once reset is asserted (`rxen` low for the receiver, `rst` high
-  for the transmitter), it stays asserted until both clocks have had 4 rising
-  edges; both designs also start in reset. `spwlink` meets this: it drives
-  `rxen` low only in ErrorReset, for `reset_time` = sysfreq x 6.4 us `clk`
-  cycles. Without the rule there are counterexamples that need a reset pulse
-  shorter than a clock period, or a clock that stops while in reset; see below.
-- **Compared outputs.** Outputs are compared from the end of the first reset.
-  `inbits` is compared only while `inbvalid` is high, since it carries no
-  data otherwise.
+- **Clocks.** Both clocks are low at the first formal step, then free.
+- **Receiver reset.** Once `rxen` is low it stays low until `clk` has had 4
+  rising edges and then `rxclk` 4 more; the design also starts with `rxen`
+  low. `spwlink` drives `rxen` low only in ErrorReset, for `reset_time` =
+  sysfreq x 6.4 us `clk` cycles, so the rule holds as long as both clocks run
+  and `rxclk` meets the core's requirement of running at least as fast as
+  `clk`. Without the rule there are counterexamples that need an `rxen` pulse
+  shorter than a clock period, or a clock that stops while `rxen` is low.
+- **Transmitter reset.** `spwxmit_fast` gets `rst` straight from the
+  `spwstream` `rst` input. The miter only assumes what that synchronous reset
+  provides: once high, `rst` covers at least one rising `clk` edge. No `txclk`
+  edges are required during reset, and the design starts in reset.
+- **Compared outputs.** Outputs are compared from the moment the first reset
+  is complete, and a separate assertion checks that every reset release comes
+  after a complete reset. `inbits` is compared only while `inbvalid` is high,
+  since it carries no data otherwise.
 - **RAM contents.** The receiver buffer RAM has no reset, so both RAMs start
   from the same contents (zero).
-- **Transmitter power-up.** `spwxmit_fast` has `txclk` registers that no reset
-  clears (`b_txflip`, `b_token`, `c_bits`, `e_shift`, `txclkcy`, `txclkdone`).
-  The proof starts both designs from the same all-zero state. With independent
-  arbitrary power-up values the problem is too large for PDR, so that case
-  has only the bounded result in the table.
+- **Transmitter power-up.** The transmitter proof starts both designs from
+  the same all-zero state. With independent arbitrary power-up values the
+  outputs differ (diagnostic row above), so the transmitter result does not
+  cover two designs that power up in different states.
 
 **Power-up difference found by the receiver proof.** The VHDL `spwrecvfront_fast`
 `rxclk`-domain registers have no initial values, while the Verilog initializes
 all of them. On the first `rxclk` edge, still in reset, the VHDL can therefore
 write one garbage entry into the buffer RAM. That entry appears as received
 data only if `rxen` rises again after a pulse shorter than a clock period, or
-a clock stops during reset. Neither can happen inside `spwlink` (see the reset
-rule above), so this does not affect the core.
+a clock stops while `rxen` is low. Neither happens under the receiver reset
+rule above, so this does not affect the core.
 
 ## Regression parity covering the remaining translated surface
 

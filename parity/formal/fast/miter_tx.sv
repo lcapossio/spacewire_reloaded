@@ -4,7 +4,10 @@
 //
 // Miter: VHDL spwxmit_fast (GHDL-synthesized via spwxmit_fast_flat, renamed
 // gold_tx) vs the Verilog spwxmit_fast.
-module miter_tx (
+module miter_tx #(
+    // Minimum reset length: rising edges of clk / txclk while rst is high.
+    parameter RST_CLK = 4, RST_TXCLK = 4
+) (
     input wire clk, txclk, rst,
     input wire [7:0] divcnt,
     input wire txen, stnull, stfct, fct_in, tick_in,
@@ -28,11 +31,10 @@ module miter_tx (
         .xmiti_txdata(txdata), .xmito_fctack(c_fctack), .xmito_txack(c_txack),
         .spw_do(c_do), .spw_so(c_so));
 
-    // Environment: once rst is high it stays high until both clocks have had
-    // RSTN rising edges (the design starts in reset). The design registers
-    // rst as sampled on the previous formal step, so an edge counts only when
-    // rst was already high then.
-    localparam RSTN = 4;
+    // Environment: once rst is high it stays high until clk has had RST_CLK
+    // and txclk RST_TXCLK rising edges (the design starts in reset). The
+    // design registers rst as sampled on the previous formal step, so an edge
+    // counts only when rst was already high then.
     reg [2:0] hic = 0, hit = 0;
     reg clk_q = 0, txclk_q = 0, rst_q = 1;
     always @($global_clock) begin
@@ -44,13 +46,27 @@ module miter_tx (
             if (txclk && !txclk_q && hit != 7) hit <= hit + 1;
         end
     end
-    always @* if (rst_q && (hic < RSTN || hit < RSTN)) assume (rst);
+    // Both clocks start low, so the first step cannot be a rising edge that
+    // the counters see but the design (whose previous clock sample is
+    // arbitrary) does not.
+    reg first = 1;
+    always @($global_clock) first <= 0;
+    always @* if (first) assume (!clk && !txclk);
 
-    // Outputs are compared once the first reset has completed.
-    reg started = 0;
-    always @(posedge clk) if (hic >= RSTN && hit >= RSTN) started <= 1;
+    wire rst_done = hic >= RST_CLK && hit >= RST_TXCLK;
+    always @* if (rst_q && !rst_done) assume (rst);
+
+    // Outputs are compared from the end of the first complete reset. The
+    // flag is latched on the formal step clock, before the counters clear.
+    reg started = 0, released = 0;
+    always @($global_clock) begin
+        if (rst_done) started <= 1;
+        if (rst_q && !rst) released <= 1;
+    end
 
     always @* begin
+        // Every reset release must have enabled the comparison.
+        assert (!released || started);
         if (started) begin
             assert (g_fctack == c_fctack);
             assert (g_txack == c_txack);

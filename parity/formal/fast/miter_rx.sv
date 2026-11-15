@@ -3,7 +3,11 @@
 // Author: Leonardo Capossio - bard0 design - hello@bard0.com
 //
 // Miter: VHDL spwrecvfront_fast (GHDL-synthesized, renamed gold_rx) vs Verilog.
-module miter_rx #(parameter RXCHUNK = 1) (
+module miter_rx #(
+    parameter RXCHUNK = 1,
+    // Minimum reset length: rising edges of clk / rxclk while rxen is low.
+    parameter RST_CLK = 4, RST_RXCLK = 4
+) (
     input wire clk, rxclk, rxen, spw_di, spw_si
 );
     wire g_inact, g_inbvalid, c_inact, c_inbvalid;
@@ -15,14 +19,13 @@ module miter_rx #(parameter RXCHUNK = 1) (
                .inact(c_inact), .inbvalid(c_inbvalid), .inbits(c_inbits),
                .spw_di(spw_di), .spw_si(spw_si));
 
-    // Environment (what spwlink guarantees: rxen is low only in ErrorReset,
-    // for reset_time = sysfreq * 6.4 us clk cycles): once rxen is low it
-    // stays low until both clocks have had RSTN rising edges. This also
-    // makes the design start in reset.
-    localparam RSTN = 4;
-    // Rising edges of each clock seen while rxen is low (any high level of
-    // rxen clears them). rxclk edges count only once a clk edge has
-    // registered the reset (rxdis), i.e. both clocks keep running.
+    // Environment: once rxen is low it stays low until clk has had RST_CLK
+    // and rxclk RST_RXCLK rising edges; the design also starts in reset.
+    // spwlink drives rxen low only in ErrorReset, for reset_time =
+    // sysfreq * 6.4 us clk cycles, and rxclk must run at least as fast as clk,
+    // so this holds with running clocks. Any high level of rxen clears the
+    // counts. rxclk edges count only once a clk edge has registered the reset
+    // (rxdis).
     reg [2:0] lowc = 0, lowr = 0;
     reg clk_q = 0, rxclk_q = 0, rxen_q = 0;
     always @($global_clock) begin
@@ -35,13 +38,27 @@ module miter_rx #(parameter RXCHUNK = 1) (
             if (rxclk && !rxclk_q && lowc != 0 && lowr != 7) lowr <= lowr + 1;
         end
     end
-    always @* if (!rxen_q && (lowc < RSTN || lowr < RSTN)) assume (!rxen);
+    // Both clocks start low, so the first step cannot be a rising edge that
+    // the counters see but the design (whose previous clock sample is
+    // arbitrary) does not.
+    reg first = 1;
+    always @($global_clock) first <= 0;
+    always @* if (first) assume (!clk && !rxclk);
 
-    // Outputs are compared once the first reset has completed.
-    reg started = 0;
-    always @(posedge clk) if (lowc >= RSTN && lowr >= RSTN) started <= 1;
+    wire rst_done = lowc >= RST_CLK && lowr >= RST_RXCLK;
+    always @* if (!rxen_q && !rst_done) assume (!rxen);
+
+    // Outputs are compared from the end of the first complete reset. The
+    // flag is latched on the formal step clock, before the counters clear.
+    reg started = 0, released = 0;
+    always @($global_clock) begin
+        if (rst_done) started <= 1;
+        if (!rxen_q && rxen) released <= 1;
+    end
 
     always @* begin
+        // Every reset release must have enabled the comparison.
+        assert (!released || started);
         if (started) begin
             assert (g_inact == c_inact);
             assert (g_inbvalid == c_inbvalid);
